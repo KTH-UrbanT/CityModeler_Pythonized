@@ -239,6 +239,6 @@ class ShapeCityPlanner():
             r'\[\s*([-0-9.eE]+),\s*([-0-9.eE]+)\s*\]',
             r'[\1, \2]', geojson_str)
         # Save to GeoJSON file
-        with open(DataFolder +'/Generated_Buildings.geojson', "w", encoding="utf-8") as f:
+        with open(DataFolder +'/'+self.config['1_Sim']['CaseName']+'.geojson', "w", encoding="utf-8") as f:
             f.write(geojson_str)
         return DataFolder

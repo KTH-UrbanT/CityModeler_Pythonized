@@ -95,3 +95,62 @@ Change `case_name` in the relevant root-level main script to name your study. Ea
 Running a workflow again deletes and recreates its case output folder. Save any results you want to keep elsewhere, or choose a new case name before rerunning.
 
 Review the generated geometry and properties before using the GeoJSON as building input in your MUBES setup.
+
+
+## Running with Docker
+
+Start Docker Desktop, then build the image from the project directory:
+
+```bash
+docker build -t citymodeller .
+```
+
+Create a separate configuration folder for Docker. This lets you use container
+paths without changing your local Python configuration:
+
+```bash
+mkdir -p docker-config examples
+cp Configs/* docker-config/
+```
+
+Edit `docker-config/UserManualInput.yml` for the hypothetical-building workflow,
+then run:
+
+```bash
+docker run --rm \
+  -v "$(pwd)/docker-config:/app/Configs:ro" \
+  -v "$(pwd)/examples:/app/examples" \
+  citymodeller
+```
+
+For the City Planner workflow, edit `docker-config/CityModellerConfig.yml` so
+its `0_Setup` section uses the mounted dataset paths:
+
+```yaml
+0_Setup:
+  cpBuildings: '/data/cpBuildings.csv'
+  cpFootprints: '/data/cpFootprints.geojson'
+  cpNow: '/data/cpNow.csv'
+  cpProperties: '/data/cpProperties.csv'
+  CityModeller_Tempalte: 'Configs/CM_Template.geojson'
+```
+
+Keep the `1_Sim` section and set the desired UUIDs or address. Keep `ODEN_API`
+set to `False`. For address selection, also mount the mapping workbook and set
+`address2UUID_DataPath` to its path inside the container.
+
+Replace `/absolute/path/to/city-planner-data` below with the folder containing
+your source files:
+
+```bash
+docker run --rm \
+  -v "$(pwd)/docker-config:/app/Configs:ro" \
+  -v "$(pwd)/examples:/app/examples" \
+  -v "/absolute/path/to/city-planner-data:/data:ro" \
+  citymodeller python main_Generate_CityModeller.py
+```
+
+Outputs are saved in your local `examples/` folder using the same case names
+as the Python workflows. Rerunning still replaces the corresponding case
+output folder. Source datasets are supplied through mounts, not bundled in
+the image. Rebuild the image after changing the Python code or requirements.
