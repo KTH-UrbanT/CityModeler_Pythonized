@@ -6,8 +6,6 @@ pyproj
 matplotlib
 geopandas
 Shapely
+requests
 # Excel support for the address-to-UUID .xlsx dataset.
 openpyxl
-
-# Optional ODEN_API mode also requires the original project's
-# default.data.Basic.ODEN_API module; it is not included in this repository.

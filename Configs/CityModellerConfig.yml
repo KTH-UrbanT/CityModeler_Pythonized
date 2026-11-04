@@ -14,5 +14,5 @@
     UUID: ['1c931069-d3d1-4559-8968-e7f0564579fb']
     Address: 'Jämtlandsgatan 120-122'                 # If you have the address of the building, InputType should be 'Address'
     address2UUID_DataPath: '/Users/alizad/OneDrive - KTH/Kallvatten_byggnad_with_addresses_and_ids_and_BldgUUD.xlsx'  # Here we need path to dataset that maps the buildings address to their UUID
-    ODEN_API: False
+    ODEN_API: True
     API_BaseURL: 'https://oden.abe.kth.se/api/v1/'
