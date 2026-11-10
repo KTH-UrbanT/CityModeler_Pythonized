@@ -1,0 +1,289 @@
+{
+  "type": "FeatureCollection",
+  "crs": {
+    "type": "name",
+    "properties": {
+      "name": "EPSG:3006"
+    }
+  },
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "diff": "33.464513699219935",
+        "Deso": "0180C4680",
+        "FNR": "010433988",
+        "IdKommun": "Stockholm",
+        "EgenNybyggAr": "1986",
+        "50A_UUID": "1c931069-d3d1-4559-8968-e7f0564579fb",
+        "42P_ByggnadsAgare": "HSB bostadsrätt",
+        "42P_ByggnadsAgareGruppEnkel": "Bostadsrättsförening",
+        "42P_ByggnadsAgareGruppStor": "Stor bostadsrättsförening",
+        "50A_ByggnadsAndamal": "Flerbostadshus",
+        "50A_ByggnadsKategori": "Flerbostadshus",
+        "43O_ARVARDE": null,
+        "43O_BYGGAR": null,
+        "43O_TILLBYAR": null,
+        "43T_ARVARDE": "1985",
+        "43T_BYGGAR": "1985",
+        "43T_TILLBYAR": "2018",
+        "43S_ARVARDE": 1985,
+        "43S_BYGGAR": 1985,
+        "43S_TILLBYAR": "2018",
+        "43S_YTATOTALB": 4046,
+        "FormularId": 929995,
+        "IdLankod": "01",
+        "IdLan": "Stockholms län",
+        "IdKommunkod": "80",
+        "IdEgnaHem": "0",
+        "IdFastBet": "Svartvik 4",
+        "IdHusnr": 1,
+        "IdRapportLM": "",
+        "IdAdr": "Svartviksslingan 35",
+        "IdPostnr": "16738",
+        "IdPostort": "Bromma",
+        "IdHuvudadress": "Ja",
+        "EgenTypkod": "320",
+        "EgenTypkod_typ": "320 - Hyreshusenhet, bostäder",
+        "EgenByggnadsKat": "Flerbostadshus",
+        "EgenKomplexitet": "Enkel",
+        "EgenByggnadsTyp": "Friliggande",
+        "EgenAtemp": 3925,
+        "EgenAvarmgarage": "",
+        "EgenAntalKallarplan": "1",
+        "EgenAntalPlan": "5",
+        "EgenAntalTrapphus": "2",
+        "EgenAntalBolgh": "40",
+        "EgenSmaLagenheter": "Nej",
+        "EgenProjVentFlode": "0.35",
+        "EgenInstEleffektStorre": "Ja",
+        "EgenSkyddadEllerVardefull": "0",
+        "EgenAtempBostad": "100",
+        "EgenAtempHotell": "",
+        "EgenAtempRestaurang": "",
+        "EgenAtempKontor": "",
+        "EgenAtempLivsmedel": "",
+        "EgenAtempButik": "",
+        "EgenAtempKopcentrum": "",
+        "EgenAtempVard": "",
+        "EgenAtempVardDag": "",
+        "EgenAtempSkolor": "",
+        "EgenAtempBad": "",
+        "EgenAtempTeater": "",
+        "EgenAtempOvrigaVad": "",
+        "EgenAtempOvrig": "",
+        "EgenAtempSumma": 100,
+        "EgiForstaArManad": "1801",
+        "EgiSistaArManad": "1812",
+        "EgiBeraknatVarde": "Nej",
+        "EgiFjarrvarmeUPPV": 0,
+        "EgiFjarrvarmeVV": 0,
+        "EgiOljaUPPV": 1582,
+        "EgiOljaVV": 0,
+        "EgiGasUPPV": 0,
+        "EgiGasVV": 0,
+        "EgiVedUPPV": 0,
+        "EgiVedVV": 0,
+        "EgiFlisUPPV": 0,
+        "EgiFlisVV": 0,
+        "EgiOvrBiobransleUPPV": 0,
+        "EgiOvrBiobransleVV": 0,
+        "EgiElVattenUPPV": 111003,
+        "EgiElDirektUPPV": 0,
+        "EgiElLuftUPPV": 0,
+        "EgiPumpMarkUPPV": 0,
+        "EgiPumpFranluftUPPV": 49673,
+        "EgiPumpLuftLuftUPPV": 0,
+        "EgiPumpLuftVattenUPPV": 0,
+        "EgiElVV": 57722,
+        "EgiFjarrkyla": 0,
+        "EgiKomfort": 0,
+        "EgiFastighet": 37204,
+        "EgiHushall": "",
+        "EgiVerksamhet": "",
+        "EgiSumma2": 257184,
+        "EgiSolvarme": "",
+        "EgiGruppSolvarme": "Nej",
+        "EgiBerEngProduktion": "",
+        "EgiStationEI": "Stockholm-Bromma",
+        "EgiSolcell": "",
+        "EgiGruppSolcell": "Nej",
+        "EgiBerElProduktion": "",
+        "EgiEnergianvandning": 283488,
+        "EgiPrimarenergianvandning": 452478,
+        "EgiPrimarenergital": 115,
+        "EgiRefvarde1": 85,
+        "EgiRefvarde2Max": 157,
+        "EgiRefvarde3": "",
+        "EgiEnergiPrestanda": 72,
+        "EgiVersion": 2019,
+        "EgiEnergiklass": "E",
+        "VentGruppKrav": "Ja",
+        "VentTypFTX": "Nej",
+        "VentTypF": "Nej",
+        "VentTypFT": "Nej",
+        "VentTypSjalvdrag": "Nej",
+        "VentTypFmed": "Ja",
+        "VentGruppGodkand": "Ja",
+        "VentDelvisProcent": "",
+        "LuftGruppFinnsluft": "Nej",
+        "Godkand": "2019-03-29",
+        "Version": "2.6",
+        "EgenGruppAtemp": null,
+        "EgenBOA": null,
+        "EgenLOA": null,
+        "EgenBRA": null,
+        "EgenBTA": null,
+        "EgenSkyddadByggnad": null,
+        "EgenSarskiltVardefull": null,
+        "EgiFjarrvarme": null,
+        "EgiGruppFjarrvarme": null,
+        "EgiOlja": null,
+        "EgiGruppOlja": null,
+        "EgiGas": null,
+        "EgiGruppGas": null,
+        "EgiVed": null,
+        "EgiGruppVed": null,
+        "EgiFlis": null,
+        "EgiGruppFlis": null,
+        "EgiOvrBiobransle": null,
+        "EgiGruppOvrBiobransle": null,
+        "EgiElVatten": null,
+        "EgiGruppElVatten": null,
+        "EgiElDirekt": null,
+        "EgiGruppElDirekt": null,
+        "EgiElLuft": null,
+        "EgiGruppElLuft": null,
+        "EgiPumpMark": null,
+        "EgiGruppPumpMark": null,
+        "EgiPumpFranluft": null,
+        "EgiGruppPumpFranluft": null,
+        "EgiPumpLuftLuft": null,
+        "EgiGruppPumpLuftLuft": null,
+        "EgiPumpLuftVatten": null,
+        "EgiGruppPumpLuftVatten": null,
+        "EgiSumma1": null,
+        "EgiVVBered": null,
+        "EgiGruppVVBered": null,
+        "EgiGruppFjarrkyla": null,
+        "EgiGruppFastighet": null,
+        "EgiGruppHushall": null,
+        "EgiGruppVerksamhet": null,
+        "EgiGruppKomfort": null,
+        "EgiKomfortTillagg": null,
+        "EgiSumma3": null,
+        "EgiSumma4": null,
+        "EgiStationGD": null,
+        "EgiNormKorrGD": null,
+        "EgiNormKorrEI": null,
+        "EgiVaravEl": null,
+        "EgiRefvarde2Min": null,
+        "Deso_id": "0180C4680",
+        "Bef_201612": 1154,
+        "_distance": 0.0,
+        "_angle": 0.0,
+        "_candidate_angle": 0.0,
+        "_candidate_label_angle": 0.0,
+        "_closest_candidate_x": 670114.4330002497,
+        "_closest_candidate_y": 6581742.657940886,
+        "_closest_base_x": 670114.4330002497,
+        "_closest_base_y": 6581742.657940886,
+        "_orginalarea": 702.7547876836187,
+        "_vertexcount": "21",
+        "byggnadsid": 77436,
+        "Buildingarea": 702.7547876836187
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              670161.2030018475,
+              6581757.444940582
+            ],
+            [
+              670152.2560028136,
+              6581749.750941591
+            ],
+            [
+              670154.873000798,
+              6581746.725933096
+            ],
+            [
+              670149.7880045858,
+              6581742.355937381
+            ],
+            [
+              670147.1950020732,
+              6581745.4009398995
+            ],
+            [
+              670136.9880038627,
+              6581736.612937955
+            ],
+            [
+              670139.5460023133,
+              6581733.5359355295
+            ],
+            [
+              670134.4610029943,
+              6581729.188933205
+            ],
+            [
+              670131.9030006313,
+              6581732.265938778
+            ],
+            [
+              670123.9920015563,
+              6581725.499936977
+            ],
+            [
+              670117.874002432,
+              6581732.568933321
+            ],
+            [
+              670120.9110023829,
+              6581735.17193445
+            ],
+            [
+              670114.4330002497,
+              6581742.657940886
+            ],
+            [
+              670121.0280026358,
+              6581748.327941417
+            ],
+            [
+              670127.4830029029,
+              6581740.822936801
+            ],
+            [
+              670144.3911733322,
+              6581755.37915389
+            ],
+            [
+              670137.7050029681,
+              6581763.142939425
+            ],
+            [
+              670145.3730029415,
+              6581769.702934431
+            ],
+            [
+              670152.0308593439,
+              6581761.968691068
+            ],
+            [
+              670155.0800027672,
+              6581764.556941321
+            ],
+            [
+              670161.2030018475,
+              6581757.444940582
+            ]
+          ]
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,54 @@
+# Choose database or template. Paths are relative to this file.
+source: template
+building_uuids: ["1c931069-d3d1-4559-8968-e7f0564579fb"]
+crs: EPSG:3006
+paths:
+  database: /Users/alizad/Desktop/FME/DataProducts/Staging/Database/main.sqlite
+  template: building_template.geojson
+  point_cloud: /Users/alizad/Desktop/FME/DataProducts/Input/Pointcloud/Ytmodell
+  terrain: /Users/alizad/Desktop/FME/DataProducts/Input/Groundmodel/Hojddata
+  fme_directory: /Users/alizad/Desktop/FME/DataProducts
+  output: ../output
+# Full source DeSO batches plus their Zones-table neighbours are mandatory.
+context: deso_and_neighbor_zones
+baseline:
+  height_inset_m: 0.5
+  minimum_height_m: 3.0
+  cleaner_inset_m: 0.5
+  cleaner_offset_m: 2.0
+  # FME maps Groundheight into its internal Groundheight.mean parameter.
+  percentile_low: 5
+  percentile_high: 95
+  tin_tolerance_m: 0.01
+  triangle_inset_m: 1.0
+  normal_z_max: 0.25
+  edge_exclusion_m: 2.0
+  triangle_buffer_m: 0.1
+  region_min_area_m2: 0.75
+  region_buffer_m: 0.5
+  endpoint_distance_m: 20.0
+  extension_m: 0.5
+  line_simplification_m: 0.5
+  average_segment_m: 3.0
+  snap_m: 0.5
+  small_area_m2: 50.0
+  small_area_fraction: 0.1
+  cutter_vertex_snap_m: 0.1
+  part_join_m: 0.1
+simplification:
+  minimum_height_m: 3.0
+  roof_range_m: 3.0
+  coordinate_decimals: 3
+  shared_tolerance_m: 0.5
+  snap_m: 0.5
+  multipart_coordinate_decimals: 6
+  short_wall_m: 2.0
+  nearby_wall_m: 0.1
+  length_difference_m: 1.0
+  reconstruction_tolerance_m: 1.0
+walls:
+  minimum_length_m: 0.0001
+  search_distance_m: 250.0
+  search_count: 999
+  touching_distance_m: 1.0
+  connection_shorten_m: 2.0

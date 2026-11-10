@@ -9,3 +9,6 @@ Shapely
 requests
 # Excel support for the address-to-UUID .xlsx dataset.
 openpyxl
+
+# Shared environment for the Geometry workflow.
+-r Geometry/requirements.txt

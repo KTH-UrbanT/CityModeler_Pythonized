@@ -1,3 +1,4 @@
+
 # @Author  :Mohammadhossein Alizadeh
 # @Email   : alizad@kth.st@kth.se
 
@@ -18,7 +19,7 @@ from .GeneralFunctions import Read_json, Read_yml, readCSV, readGjsonFiona
 # This class contains everything required to creat CityModeller from datasets to functions
 # There is a template of CityModeller in dir with name CM_Template that we use to generate CityModeller
 class ShapeCityPlanner():
-    def __init__(self, path, CM_Template):
+    def __init__(self, path, CM_Template, UUID=None):
         if 'bin' in path:
             path = path[:path.find('bin')]
         self.Mainpath = path #os.getcwd()[: os.getcwd().find('bin')]
@@ -29,7 +30,9 @@ class ShapeCityPlanner():
         self.cpNow = readCSV(os.path.join(self.Mainpath, self.config['0_Setup']['cpNow']))
         self.cpFootprints = readGjsonFiona(os.path.join(self.Mainpath,self.config['0_Setup']['cpFootprints']))
         self.template = CM_Template
-        if self.config['1_Sim']['InputType'] == "Address":
+        if UUID is not None:
+            self.UUID = list(UUID)
+        elif self.config['1_Sim']['InputType'] == "Address":
             try:
                 self.AddressUUID_data = pd.read_excel(os.path.join(self.Mainpath, self.config['1_Sim']['address2UUID_DataPath']))
                 self.User_Address = self.config['1_Sim']['Address']
@@ -52,7 +55,10 @@ class ShapeCityPlanner():
             #     elif 'xlsx' in self.config['1_Sim']['UUID']:
             #         self.UUID = np.array(pd.read_excel(os.path.join(path, 'examples/SvB_55A_UUID',self.config['1_Sim']['UUID']))['UUIDs'])
             else:
-                self.UUID = self.config['1_Sim']['UUID']
+                if UUID:
+                    self.UUID = UUID
+                else:
+                    self.UUID = self.config['1_Sim']['UUID']
 
 
         self.BldFootPrints = [FP for FP in self.cpFootprints if FP.get('50A_UUID') in self.UUID]
@@ -63,7 +69,8 @@ class ShapeCityPlanner():
         self.BldcpProperties = self.cpProperties[self.cpProperties['FNR'] == float(self.FNR)]
 
     def GenCore(self):
-        FirstRun = True
+        self.FirstRun = True
+        MainFile = []
         Listofqout = {
             "43S_TILLBYAR", "43T_TILLBYAR",
             "EgenAtempBad", "EgenAtempButik", "EgenAtempHotell", "EgenAtempKontor",
@@ -95,60 +102,71 @@ class ShapeCityPlanner():
             template.get('features')[0]['type'] = 'Feature'
             template.get('features')[0]['geometry']['type'] = 'GeometryCollection'
             geomtype = template.get('features')[0]['geometry']['geometries'][0]['type']
-
-            for keys in template.get('features')[0]['properties'].keys():
-                if keys in self.cpNow.columns:
-                    try:
-                        if pd.isna(BldcpNow[keys].values[0].item()) and keys in Listofqout:
-                            template.get('features')[0]['properties'][keys] = ""
-                        else:
-                            template.get('features')[0]['properties'][keys] = BldcpNow[keys].values[0].item() if type(
-                                BldcpNow[keys].values[0]) is (np.int64 or np.float64) else BldcpNow[keys].values[0]
-                    except:
-                        template.get('features')[0]['properties'][keys] = BldcpNow[keys].item()
-                elif keys in self.cpBuildings.columns:
-                    try:
-                        if pd.isna(BldcpNow[keys].values[0].item()) and keys in Listofqout:
-                            template.get('features')[0]['properties'][keys] = ""
-                        else:
-                            template.get('features')[0]['properties'][keys] = BldcpBuilding[keys].values[0].item() if type(BldcpBuilding[keys].values[0]) is np.float64 else \
-                            BldcpBuilding[keys].values[0]
-                    except:
-                        template.get('features')[0]['properties'][keys] = BldcpBuilding[keys].item()
-
-                elif keys in self.cpProperties.columns:
-                    try:
-                        if pd.isna(BldcpNow[keys].values[0].item()) and keys in Listofqout:
-                            template.get('features')[0]['properties'][keys] = ""
-                        else:
-                            template.get('features')[0]['properties'][keys] = BldcpProperties[keys].values[
-                                0].item() if type(BldcpProperties[keys].values[0]) is np.float64 else \
-                            BldcpProperties[keys].values[0]
-                    except:
-                        template.get('features')[0]['properties'][keys] = BldcpProperties[keys].item()
-                else:
-                    template.get('features')[0]['properties']['height'] = Height
-
-            for block in coordinates:
-                for idx, Info in enumerate([block]):
-                    transformer = Transformer.from_crs("EPSG:4326", "EPSG:3006", always_xy=True)
-                    coordinates_sweref99_Floor = [transformer.transform(lon, lat, 0) for lon, lat in Info]
-                    coordinates_sweref99_Roof = [transformer.transform(lon, lat, Height) for lon, lat in Info]
-                    polygon = Polygon(coordinates_sweref99_Roof)
-                    coords_lists_sweref99_Roof = [[[list(coord) for coord in coordinates_sweref99_Roof]]]
-                    coords_lists_sweref99_Floor = [[[list(coord) for coord in coordinates_sweref99_Floor]]]
-                if ReplcaeTemplate:
-                    template.get('features')[0]['geometry']['geometries'][0]['type'] = geomtype
-                    template.get('features')[0]['geometry']['geometries'][0]['coordinates'] = coords_lists_sweref99_Roof
-                    template.get('features')[0]['geometry']['geometries'][0]['coordinates'].append(
-                        coords_lists_sweref99_Floor[0])
-                    ReplcaeTemplate = False
-                else:
-                    template.get('features')[0]['geometry']['geometries'].append({'type': geomtype, 'coordinates': [
-                        coords_lists_sweref99_Roof[0], coords_lists_sweref99_Floor[0]]})
-            if FirstRun:
+            template = self.features(template, BldcpNow, Listofqout, BldcpBuilding,
+                 BldcpProperties, Height)
+            # template = self.coordination(coordinates, template, ReplcaeTemplate, Height, self.FirstRun, geomtype, MainFile)
+            if self.FirstRun:
                 MainFile = template.copy()
-                FirstRun = False
+                self.FirstRun = False
             else:
                 MainFile.get('features').append(template.get('features')[0])
         return MainFile, self.UUID
+
+
+    def features(self, template, BldcpNow, Listofqout, BldcpBuilding,
+                 BldcpProperties, Height):
+        for keys in template.get('features')[0]['properties'].keys():
+            if keys in self.cpNow.columns:
+                try:
+                    if pd.isna(BldcpNow[keys].values[0].item()) and keys in Listofqout:
+                        template.get('features')[0]['properties'][keys] = ""
+                    else:
+                        template.get('features')[0]['properties'][keys] = BldcpNow[keys].values[0].item() if type(
+                            BldcpNow[keys].values[0]) is (np.int64 or np.float64) else BldcpNow[keys].values[0]
+                except:
+                    template.get('features')[0]['properties'][keys] = BldcpNow[keys].item()
+            elif keys in self.cpBuildings.columns:
+                try:
+                    if pd.isna(BldcpNow[keys].values[0].item()) and keys in Listofqout:
+                        template.get('features')[0]['properties'][keys] = ""
+                    else:
+                        template.get('features')[0]['properties'][keys] = BldcpBuilding[keys].values[0].item() if type(BldcpBuilding[keys].values[0]) is np.float64 else \
+                        BldcpBuilding[keys].values[0]
+                except:
+                    template.get('features')[0]['properties'][keys] = BldcpBuilding[keys].item()
+
+            elif keys in self.cpProperties.columns:
+                try:
+                    if pd.isna(BldcpNow[keys].values[0].item()) and keys in Listofqout:
+                        template.get('features')[0]['properties'][keys] = ""
+                    else:
+                        template.get('features')[0]['properties'][keys] = BldcpProperties[keys].values[
+                            0].item() if type(BldcpProperties[keys].values[0]) is np.float64 else \
+                        BldcpProperties[keys].values[0]
+                except:
+                    template.get('features')[0]['properties'][keys] = BldcpProperties[keys].item()
+            else:
+                template.get('features')[0]['properties']['height'] = Height
+        return template
+
+
+    def coordination(self, coordinates, template, ReplcaeTemplate, Height, FirstRun, geomtype, MainFile):
+        for block in coordinates:
+            for idx, Info in enumerate([block]):
+                transformer = Transformer.from_crs("EPSG:4326", "EPSG:3006", always_xy=True)
+                coordinates_sweref99_Floor = [transformer.transform(lon, lat, 0) for lon, lat in Info]
+                coordinates_sweref99_Roof = [transformer.transform(lon, lat, Height) for lon, lat in Info]
+                polygon = Polygon(coordinates_sweref99_Roof)
+                coords_lists_sweref99_Roof = [[[list(coord) for coord in coordinates_sweref99_Roof]]]
+                coords_lists_sweref99_Floor = [[[list(coord) for coord in coordinates_sweref99_Floor]]]
+            if ReplcaeTemplate:
+                template.get('features')[0]['geometry']['geometries'][0]['type'] = geomtype
+                template.get('features')[0]['geometry']['geometries'][0]['coordinates'] = coords_lists_sweref99_Roof
+                template.get('features')[0]['geometry']['geometries'][0]['coordinates'].append(
+                    coords_lists_sweref99_Floor[0])
+                ReplcaeTemplate = False
+            else:
+                template.get('features')[0]['geometry']['geometries'].append({'type': geomtype, 'coordinates': [
+                    coords_lists_sweref99_Roof[0], coords_lists_sweref99_Floor[0]]})
+        return template
+

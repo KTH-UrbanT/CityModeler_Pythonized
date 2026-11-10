@@ -1,4 +1,6 @@
-"""Generate building GeoJSON using Configs/CityModellerConfig.yml."""
+"""Generate building GeoJSON using Configs/CityModellerConfig.yml.
+This script generates citymodeller completely based on cityplanner and ODEN API.
+The geometry comes from cpProperties.geojson"""
 
 from pathlib import Path
 from Scripts.GeneralFunctions import Read_yml, Read_json, SaveitGeoJson

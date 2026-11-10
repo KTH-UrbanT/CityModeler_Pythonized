@@ -41,7 +41,7 @@ The script uses `Configs/CM_Template.geojson` as its base. Configuration propert
 Run the root-level entry point:
 
 ```bash
-venv/bin/python main_Data4ExternalStudy.py
+venv/bin/python Features/main_Data4ExternalStudy.py
 ```
 
 Default output:
@@ -79,7 +79,7 @@ The generator copies matching source properties into the template and builds flo
 Run the root-level entry point:
 
 ```bash
-venv/bin/python main_Generate_CityModeller.py
+venv/bin/python Features/main_Generate_CityModeller.py
 ```
 
 Default output:
@@ -110,7 +110,7 @@ paths without changing your local Python configuration:
 
 ```bash
 mkdir -p docker-config examples
-cp Configs/* docker-config/
+cp Features/Configs/* docker-config/
 ```
 
 Edit `docker-config/UserManualInput.yml` for the hypothetical-building workflow,
@@ -154,3 +154,44 @@ Outputs are saved in your local `examples/` folder using the same case names
 as the Python workflows. Rerunning still replaces the corresponding case
 output folder. Source datasets are supplied through mounts, not bundled in
 the image. Rebuild the image after changing the Python code or requirements.
+
+
+## Shared Python environment
+
+Both `Features/` and `Geometry/` use the single `venv/` at the repository root.
+Install all dependencies from that root with `venv/bin/python -m pip install -r requirements.txt`.
+In PyCharm, select the existing interpreter `venv/bin/python` for both workflows.
+Do not create another environment inside either folder. Feature workflow outputs
+are now under `Features/examples/` when run locally.
+
+```bash
+source venv/bin/activate
+python Features/main_Generate_CityModeller.py
+python Geometry/code/generate_baseline.py --help
+```
+
+## Full workflow: features and geometry
+
+Run from the repository root:
+
+```bash
+venv/bin/python Full_Workflow.py
+```
+
+Set only `building_uuids` in `GenConfig.yml`. The feature data paths are in
+`Features/Configs/CityModellerConfig.yml`; point-cloud and terrain paths are in
+`Geometry/inputs/config.yml`. The UUIDs in `GenConfig.yml` control both stages.
+
+The workflow generates properties, projects the selected City Planner footprints
+into the geometry CRS, runs baseline generation followed by simplification, and
+replaces each feature's geometry by matching `50A_UUID`. Feature properties are
+preserved. The geometry stages run in separate processes using the same virtual
+environment to avoid native GDAL conflicts between Fiona and Rasterio.
+
+The default result is `output/full_workflow/CityModeller.geojson`. Intermediate
+features, footprint input, a resolved geometry configuration, and geometry-stage
+outputs are retained alongside it for inspection. Rerunning overwrites these
+workflow files. The workflow uses template geometry mode for the selected
+buildings; it does not load the database's full surrounding-building context.
+The same run also creates `output/full_workflow/CityModeller_plot.html`, an
+interactive 3D plot of the final combined model. Open that HTML file in a browser.

@@ -4,6 +4,15 @@ venv/
 __pycache__/
 *.py[cod]
 .DS_Store
-examples/
 .env
 docker-config/
+
+# Generated outputs in the project root, Geometry, and Features
+/output/
+/examples/
+/Geometry/output/
+/Geometry/Outputs/
+/Geometry/examples/
+/Features/output/
+/Features/Outputs/
+/Features/examples/
