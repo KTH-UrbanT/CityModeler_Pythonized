@@ -68,7 +68,7 @@ class ShapeCityPlanner():
         self.BldcpNow = self.cpNow[self.cpNow['FormularId'] == self.FormularID]
         self.BldcpProperties = self.cpProperties[self.cpProperties['FNR'] == float(self.FNR)]
 
-    def GenCore(self):
+    def GenCore(self, UUID = None):
         self.FirstRun = True
         MainFile = []
         Listofqout = {
@@ -92,12 +92,13 @@ class ShapeCityPlanner():
             BldcpBuilding = self.cpBuildings[self.cpBuildings['50A_UUID'] == ID]
             Height = BldcpBuilding['STS_BYGG_H'].values[0].item()
             AntalPlan = BldcpNow['EgenAntalPlan'].values[0].item()
-            if math.isnan(Height):
-                if math.isnan(AntalPlan):
-                    msg = f'[CityModeller Creation] Building {ID} is disregarded because has nan in height column STS_BYGG_H'
-                    print(msg)
-                    continue
-                else: Height = AntalPlan * 2.6
+            if UUID is None:
+                if math.isnan(Height):
+                    if math.isnan(AntalPlan):
+                        msg = f'[CityModeller Creation] Building {ID} is disregarded because has nan in height column STS_BYGG_H'
+                        print(msg)
+                        continue
+                    else: Height = AntalPlan * 2.6
             BldcpProperties = self.cpProperties[self.cpProperties['FNR'] == float(FNR)]
             template.get('features')[0]['type'] = 'Feature'
             template.get('features')[0]['geometry']['type'] = 'GeometryCollection'

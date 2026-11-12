@@ -178,20 +178,30 @@ Run from the repository root:
 venv/bin/python Full_Workflow.py
 ```
 
-Set only `building_uuids` in `GenConfig.yml`. The feature data paths are in
-`Features/Configs/CityModellerConfig.yml`; point-cloud and terrain paths are in
-`Geometry/inputs/config.yml`. The UUIDs in `GenConfig.yml` control both stages.
+Set `CaseName` and either `building_uuids` or `Read_UUID_from_External_file`
+in `GenConfig.yml`. An empty `CaseName` uses `output/full_workflow/`; a name such
+as `Archetype_1000` uses `output/Archetype_1000/`. When the external path is set,
+`building_uuids` takes precedence when it is nonempty. Otherwise, the external path is used. It may point to an `.xlsx` workbook
+or a folder containing exactly one `.xlsx`, `.csv`, or `.txt` UUID file. Excel
+and CSV files need a `UUID`, `50A_UUID`, or `building_uuid` column; text files
+need one UUID per line. Relative paths start at the project root. The feature
+data paths are in `Features/Configs/CityModellerConfig.yml`; point-cloud and
+terrain paths are in `Geometry/inputs/config.yml`. All selected UUIDs must
+exist in the configured City Planner footprints dataset.
 
 The workflow generates properties, projects the selected City Planner footprints
 into the geometry CRS, runs baseline generation followed by simplification, and
 replaces each feature's geometry by matching `50A_UUID`. Feature properties are
-preserved. The geometry stages run in separate processes using the same virtual
+preserved. Buildings rejected by geometry generation are skipped and listed with
+their UUID, stage, and reason in `output/<CaseName>/failed_buildings.log` (or
+`output/full_workflow/failed_buildings.log` when `CaseName` is empty). The geometry stages run in separate processes using the same virtual
 environment to avoid native GDAL conflicts between Fiona and Rasterio.
 
-The default result is `output/full_workflow/CityModeller.geojson`. Intermediate
+The default result is `output/full_workflow/Stockholm_Buildings.geojson`. Intermediate
 features, footprint input, a resolved geometry configuration, and geometry-stage
 outputs are retained alongside it for inspection. Rerunning overwrites these
 workflow files. The workflow uses template geometry mode for the selected
 buildings; it does not load the database's full surrounding-building context.
 The same run also creates `output/full_workflow/CityModeller_plot.html`, an
-interactive 3D plot of the final combined model. Open that HTML file in a browser.
+interactive 3D building map. Open that HTML file in a browser with an internet connection.
+Building colors represent construction year, with the range shown in the map legend.

@@ -159,6 +159,7 @@
 				"EgiVerksamhet" : "",
 				"EgiVersion" : 2019,
 				"EgiVVBered" : null,
+				"EgiUppvarmning_calc": 0,
 				"FNR" : "010433983",
 				"Footprint_area_Sweref" : 2100.5929435170438,
 				"FormularId" : 928104,

@@ -38,8 +38,13 @@ baseline:
 simplification:
   minimum_height_m: 3.0
   roof_range_m: 3.0
+  roof_merge_mode: neighboring  # neighboring or overall
   coordinate_decimals: 3
   shared_tolerance_m: 0.5
+  bump_cleanup:
+    enabled: true
+    tolerance_m: 1.2
+    max_area_change_fraction: 0.02
   snap_m: 0.5
   multipart_coordinate_decimals: 6
   short_wall_m: 2.0

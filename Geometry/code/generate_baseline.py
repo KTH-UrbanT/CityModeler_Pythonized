@@ -471,7 +471,7 @@ def run(config):
     missing = sorted(set(config['building_uuids']) - {r['uuid'] for r in drawable})
     write_json(output/'baseline_report.json', {'buildings_in_context': len(buildings), 'sections': len(records), 'missing_requested_uuids': missing, 'features': reports})
     if missing:
-        raise ValueError(f'No baseline geometry for requested UUIDs: {missing}; see baseline_report.json')
+        print(f'Skipped {len(missing)} buildings without baseline geometry; see baseline_report.json', flush=True)
     print(f'Baseline and contextual handoff written to {output}', flush=True)
 
 

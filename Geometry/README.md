@@ -87,8 +87,27 @@ Only the four baseline outputs are present until the simplifier runs. Each run o
 ../venv/bin/python code/plot_model.py --input output/simplified.geojson --output output/simplified_plot.html --open
 ```
 
-Add `--uuid 1c931069-d3d1-4559-8968-e7f0564579fb` to either command to show just that building. The plot reads the specified GeoJSON, colors each block separately, and uses a local XY display offset; the GeoJSON itself keeps EPSG:3006 coordinates.
+Add `--uuid 1c931069-d3d1-4559-8968-e7f0564579fb` to either command to show just that building. The plot places building blocks at their real locations on an interactive street map. Building colors follow construction year (`43S_BYGGAR`, with `EgenNybyggAr` or `43T_BYGGAR` as fallbacks); gray means no usable year. The map legend shows the year range. Drag to pan, right-drag or Ctrl-drag to rotate, and scroll to zoom. Search a UUID to focus on one building. Map tiles and the viewer libraries require an internet connection; the GeoJSON itself keeps EPSG:3006 coordinates.
 
 ## FME fidelity
 
 This implements the FME **workflow and techniques**, not FME's internal geometry kernels. Point ordering at percentile ties, TIN triangulation, polygon snapping, and boundary generalization can change splits or heights. For example, comparison against the Minneberg building GeoJSON found the same UUID set but different block divisions in some buildings. Use the stages and reports above to investigate a discrepancy; `WORKFLOW_MAPPING.md` identifies the matching FME transformers and remaining limitations.
+
+## Optional footprint bump cleanup
+
+Set `simplification.bump_cleanup.enabled` in `inputs/config.yml` to `true` to
+remove repeated short steps from eligible building outlines, including buildings
+with multiple roof sections. For multi-section buildings, the cleanup adjusts
+the shared outer outline while keeping the internal section boundaries aligned.
+`tolerance_m` controls the simplification distance, and
+`max_area_change_fraction` limits the permitted footprint change. Set
+`enabled: false` to preserve the original outline. Changed UUIDs are listed
+in `simplification_report.json` under `bump_cleanup_uuids`.
+
+## Roof merging
+
+Set `simplification.roof_merge_mode` in `inputs/config.yml` to `overall` or
+`neighboring`. Both use `roof_range_m`. `overall` merges only when the full
+building's roof-height range is below the threshold. `neighboring` merges
+adjacent sections with a combined roof-height range below the threshold, so
+nearby high roofs can merge while lower sections remain separate.

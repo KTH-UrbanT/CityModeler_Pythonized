@@ -4,6 +4,7 @@ Run: ../venv/bin/python code/simplify_model.py [--config inputs/config.yml]
 The baseline_context.json handoff includes the complete DeSO neighbourhood.
 """
 import argparse
+from collections import Counter
 import copy
 import json
 import math
@@ -11,6 +12,7 @@ from pathlib import Path
 
 import numpy as np
 from shapely import STRtree, set_precision
+from shapely.errors import GEOSException
 from shapely.geometry import LineString, Point, Polygon, mapping, shape
 from shapely.ops import nearest_points, polygonize, unary_union
 
@@ -36,20 +38,117 @@ def dissolve(records):
     return result
 
 
+def remove_repeated_bumps(polygon, settings):
+    """Simplify only outlines with repeated, similarly directed short steps."""
+    cleanup = settings.get('bump_cleanup', {})
+    if not cleanup.get('enabled', False) or polygon.geom_type != 'Polygon' or polygon.interiors:
+        return polygon, False
+    tolerance = cleanup.get('tolerance_m', 1.2)
+    if not has_repeated_bumps(polygon, tolerance):
+        return polygon, False
+    candidate = polygon.simplify(tolerance, preserve_topology=True)
+    area_change = polygon.symmetric_difference(candidate).area / polygon.area
+    if (candidate.geom_type != 'Polygon' or not candidate.is_valid or
+            len(polygon.exterior.coords) - len(candidate.exterior.coords) < 3 or
+            area_change > cleanup.get('max_area_change_fraction', 0.02)):
+        return polygon, False
+    return candidate, True
+
+
+def has_repeated_bumps(polygon, tolerance):
+    if polygon.geom_type != 'Polygon' or polygon.interiors:
+        return False
+    short_edges = []
+    distance = 0.0
+    for a, b in zip(polygon.exterior.coords, list(polygon.exterior.coords)[1:]):
+        dx, dy = b[0] - a[0], b[1] - a[1]
+        length = math.hypot(dx, dy)
+        if 0.5 * tolerance <= length <= 1.25 * tolerance:
+            short_edges.append((distance, math.atan2(dy, dx) % math.pi))
+        distance += length
+    return any(sum(0 <= other_distance - start <= 40 and
+                   min(abs(angle - direction), math.pi - abs(angle - direction)) <= math.radians(20)
+                   for other_distance, angle in short_edges) >= 3
+               for start, direction in short_edges)
+
+
+def clean_multi_section_bumps(polygons, settings):
+    """Clean the shared outer outline, then assign its changes to roof sections."""
+    cleanup = settings.get('bump_cleanup', {})
+    original = unary_union(polygons)
+    if original.geom_type != 'Polygon' or original.interiors:
+        return polygons, False
+    tolerance = cleanup.get('tolerance_m', 1.2)
+    candidate = None
+    while tolerance >= 0.5:
+        trial = original.simplify(tolerance, preserve_topology=True)
+        change = original.symmetric_difference(trial).area / original.area
+        if (trial.geom_type == 'Polygon' and trial.is_valid and
+                len(original.exterior.coords) - len(trial.exterior.coords) >= 3 and
+                change <= cleanup.get('max_area_change_fraction', 0.02)):
+            candidate = trial
+            break
+        tolerance = round(tolerance - 0.1, 2)
+    if candidate is None:
+        return polygons, False
+    additions = [[] for _ in polygons]
+    for piece in parts(candidate.difference(original)):
+        owner = max(range(len(polygons)), key=lambda i: piece.boundary.intersection(polygons[i].boundary).length)
+        additions[owner].append(piece)
+    try:
+        revised = [valid_area(unary_union([polygon.intersection(candidate), *additions[i]]))
+                   for i, polygon in enumerate(polygons)]
+    except (ValueError, GEOSException):
+        return polygons, False
+    if (unary_union(revised).symmetric_difference(candidate).area > 1e-6 or
+            any(a.intersection(b).area > 1e-6 for i, a in enumerate(revised) for b in revised[i+1:])):
+        return polygons, False
+    return revised, True
+
+
+def roof_merge_groups(records, mode, threshold):
+    """Group adjacent sections without chaining across the roof-height limit."""
+    if mode == 'overall':
+        return [records] if max(r['roof'] for r in records) - min(r['roof'] for r in records) < threshold else [[r] for r in records]
+    if mode != 'neighboring':
+        raise ValueError('simplification.roof_merge_mode must be overall or neighboring')
+    clusters = [[i] for i in range(len(records))]
+    edges = sorted((abs(a['roof'] - b['roof']), i, j)
+                   for i, a in enumerate(records) for j, b in enumerate(records)
+                   if i < j and a['polygon'].boundary.intersection(b['polygon'].boundary).length > 1e-6)
+    for _, i, j in edges:
+        first = next(c for c in clusters if i in c)
+        second = next(c for c in clusters if j in c)
+        if first is second:
+            continue
+        merged = first + second
+        if max(records[k]['roof'] for k in merged) - min(records[k]['roof'] for k in merged) < threshold:
+            first.extend(second)
+            clusters.remove(second)
+    return [[records[i] for i in cluster] for cluster in clusters]
+
+
 def final_footprints(records, settings):
     """Height branches -> two dissolves -> round -> shared generalize -> snap."""
     selected, bypass = [], []
     records = copy.deepcopy([r for r in records if r['height'] > settings['minimum_height_m']])
+    original_groups = groups(records, lambda r: r['uuid'])
+    multi_bump_ids = {identifier for identifier, group in original_groups.items()
+                      if len(group) > 1 and settings.get('bump_cleanup', {}).get('enabled', False)
+                      and has_repeated_bumps(unary_union([r['polygon'] for r in group]),
+                                             settings['bump_cleanup'].get('tolerance_m', 1.2))}
+    mode = settings.get('roof_merge_mode', 'overall')
     for group in groups(records, lambda r: (r['uuid'], r['building_id'])).values():
-        if max(r['roof'] for r in group)-min(r['roof'] for r in group) < settings['roof_range_m']:
-            roof = max(r['roof'] for r in group)
-            ground = min(r['ground'] for r in group)
-            height = max(r['height'] for r in group)
-            for r in group:
+        for cluster in roof_merge_groups(group, mode, settings['roof_range_m']):
+            if len(cluster) == 1:
+                bypass.extend(cluster)
+                continue
+            roof = max(r['roof'] for r in cluster)
+            ground = min(r['ground'] for r in cluster)
+            height = roof - ground if mode == 'neighboring' else max(r['height'] for r in cluster)
+            for r in cluster:
                 r.update(roof=roof, ground=ground, height=height)
-            selected.extend(group)
-        else:
-            bypass.extend(group)
+            selected.extend(cluster)
     records = dissolve(dissolve(selected) + bypass)
     if not records:
         return []
@@ -57,10 +156,27 @@ def final_footprints(records, settings):
     simplified = shared_generalization(rounded, settings['shared_tolerance_m'])
     snapped = snap_areas(simplified, settings['snap_m'])
     output = []
+    section_counts = Counter(r['uuid'] for r in records)
+    multi_sections = groups(list(enumerate(records)), lambda item: item[1]['uuid'])
+    cleaned_multi = set()
+    for identifier in multi_bump_ids:
+        sections = multi_sections.get(identifier, [])
+        if len(sections) < 2:
+            continue
+        indices = [index for index, _ in sections]
+        revised, changed = clean_multi_section_bumps([snapped[index] for index in indices], settings)
+        if changed:
+            for index, polygon in zip(indices, revised):
+                snapped[index] = polygon
+            cleaned_multi.add(identifier)
     for r, geometry in zip(records, snapped):
+        cleaned = r['uuid'] in cleaned_multi
+        if section_counts[r['uuid']] == 1:
+            geometry, cleaned = remove_repeated_bumps(geometry, settings)
         for p in parts(geometry):
             # 3DForcer+Extruder: top is Groundheight+Buildingheight, not Roofheight.
-            output.append({**r, 'polygon': p, 'section_id': f'{r["building_id"]}:final:{len(output)}'})
+            output.append({**r, 'polygon': p, 'bump_cleanup_applied': cleaned,
+                           'section_id': f'{r["building_id"]}:final:{len(output)}'})
     return output
 
 
@@ -362,12 +478,14 @@ def run(config):
     write_json(folder/'walls.geojson', collection(export_walls(wall_export)))
     write_json(folder/'wall_relationships.json', selected_relations)
     write_json(folder/'simplified_context.json', {'records': encode_records(final), 'wall_count': len(walls)})
+    missing = sorted(set(config['building_uuids']) - {f['properties']['50A_UUID'] for f in features})
     write_json(folder/'simplification_report.json', {'zones': reports, 'small_wall_events': trace,
                'context_wall_count': len(walls), 'exported_wall_count': len(wall_export),
-               'selected_buildings': len(features), 'native_merged_export_buildings': len(fme_exports)})
-    missing = set(config['building_uuids']) - {f['properties']['50A_UUID'] for f in features}
+               'selected_buildings': len(features), 'native_merged_export_buildings': len(fme_exports),
+               'bump_cleanup_uuids': sorted({r['uuid'] for r in final if r.get('bump_cleanup_applied')}),
+               'missing_requested_uuids': missing})
     if missing:
-        raise ValueError(f'Requested buildings removed by simplification filters: {sorted(missing)}')
+        print(f'Skipped {len(missing)} buildings during simplification; see simplification_report.json', flush=True)
     print(f'Combined models, walls and relationships written to {folder}', flush=True)
 
 
