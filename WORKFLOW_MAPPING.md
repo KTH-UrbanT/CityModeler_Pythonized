@@ -80,7 +80,7 @@ All line references here are to `Citymodeller_Footprints_worker.fmw`.
 | Length/vertex count/TestFilter/SpikeRemover, 51829–51852 | Length / vertex count >=3; 90° spike check; only UNCHANGED emitted | `cutting_lines` |
 | PolygonCutter, 51856–52021 | Intersector by building ID; vertex snap .1; AreaBuilder/DonutFactory; within/contains checks; cut/untouched branches | `cut_polygon`, `process_zone` |
 | Clipper_4, 52023–52040 | Cut geometries minus same-ID untouched geometry; OUTSIDE branch | `process_zone` |
-| Snapper_3/AreaOnAreaOverlayer_3, 52041–52043 | Ungrouped within DeSO; segment snapping .5; planar overlay | `snap_areas`, `process_zone` |
+| Snapper_3/AreaOnAreaOverlayer_3, 52041–52043 | Ungrouped within DeSO; ALL snapping .5; collapsed features disconnected; planar overlay | `snap_areas`, `process_zone` |
 | Geometry save/interior point/owner recovery/hole exclusion, 52045–52075 | Nearest containing accepted original building, distance 0; exclude courtyard marker matches | `process_zone` |
 | AreaCalculator_4/TestFilter_4, 52077–52086 | `_newarea <=50` OR `areadel <.1`; denominator `_orginalarea` | `regroup` |
 | Dissolver/Counter/NeighborFinder_5/Dissolver_3, 52089–52101 | Dissolve small parts by building; assign nearby retained roof ID within .1 m; dissolve by roof ID+building | `regroup` |
@@ -98,7 +98,7 @@ from rounded mesh coordinates.
 | TestFilter_5/statistics/TestFilter_6, 52255–52265 | Height >3; roof range <3 per UUID+byggnadsid | `final_footprints` |
 | AttributeCreator_5, 52268 | Selected branch: max roof, min ground, max height independently | `final_footprints` |
 | Dissolver_2/_5, 52270–52272 | Roof+UUID+building ID; first attributes; second receives selected and bypass | `dissolve`, `final_footprints` |
-| CoordinateRounder/Generalizer/Snapper, 52274–52278 | XYZ 3; shared boundaries Douglas .5; segment snap .5; batch DeSO | `final_footprints`, `shared_generalization`, `snap_areas` |
+| CoordinateRounder/Generalizer/Snapper, 52274–52278 | XYZ 3; shared boundaries Douglas .5; ALL snap .5; collapsed features disconnected; batch DeSO | `final_footprints`, `shared_generalization`, `snap_areas` |
 | 3DForcer/Extruder, 52280–52284 | Groundheight + Buildingheight, even if differing from Roofheight attribute | `model_features`, `extrude`; bounds retained in records |
 | Bounds/BREP/counters/surface extraction/Multiparts, 52287–52334 | Group surfaces into sections, then buildings; round XYZ 6; >1 part enters cleanup | `remove_small_walls` and section representation |
 | RemoveSmallWalls roof selection/2D/chop, 52335–52370 | Unit normal Z=+1; roof rings to edge segments | `remove_small_walls`, `noded_walls` |
@@ -155,8 +155,9 @@ These are implementation differences, not undisclosed missing wall stages:
 3. **GEOS operations:** buffering uses 22.5° arc discretization; polygon validity
    repair, boundary noding, precision rounding, Douglas–Peucker, and shared-edge
    assignment use GEOS. FME AUTO cleaning, repair routing and feature ordering
-   are not proprietary-kernel replicas. Vertex-to-segment snapping freezes
-   preceding boundaries and projects later vertices to them. PolygonCutter's
+   are not proprietary-kernel replicas. Batch snapping uses GEOS to snap each
+   polygon to nearby boundaries; its vertex choices can differ from FME's ALL
+   mode. Collapsed polygons are routed out of the connected path. PolygonCutter's
    .1 m vertex snap uses deterministic nearest vertex clusters.
 4. **Raster mosaics:** valid overlapping cells use last-tile values. Delivered
    aligned tiles are read by cell centers. Arbitrarily misaligned raster grids

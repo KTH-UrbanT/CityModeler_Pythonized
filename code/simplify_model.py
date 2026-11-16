@@ -1,6 +1,6 @@
 """Continue the FME graph: final footprints, small-wall reconstruction and wall exports.
 
-Run: ../venv/bin/python code/simplify_model.py [--config inputs/config.yml]
+Run: venv/bin/python code/simplify_model.py [--config inputs/config.yml]
 The baseline_context.json handoff includes the complete DeSO neighbourhood.
 """
 import argparse
@@ -154,7 +154,12 @@ def final_footprints(records, settings):
         return []
     rounded = [valid_area(set_precision(r['polygon'], 10**-settings['coordinate_decimals'])) for r in records]
     simplified = shared_generalization(rounded, settings['shared_tolerance_m'])
+    records, simplified = zip(*[(r, p) for r, p in zip(records, simplified) if p is not None]) if any(p is not None for p in simplified) else ([], [])
+    if not records:
+        return []
     snapped = snap_areas(simplified, settings['snap_m'])
+    records, snapped = zip(*[(r, p) for r, p in zip(records, snapped) if p is not None]) if any(p is not None for p in snapped) else ([], [])
+    snapped = list(snapped)
     output = []
     section_counts = Counter(r['uuid'] for r in records)
     multi_sections = groups(list(enumerate(records)), lambda item: item[1]['uuid'])
@@ -277,8 +282,14 @@ def remove_small_walls(records, settings):
         for r in group:
             ground = round(r['ground'], decimals)
             top = round(r['ground'] + r['height'], decimals)
-            rounded.append({**r, 'polygon': valid_area(set_precision(r['polygon'], 10**-decimals)),
-                            'ground': ground, 'height': top-ground})
+            geometry = set_precision(r['polygon'], 10**-decimals)
+            if geometry.is_empty:
+                continue
+            geometry = valid_area(geometry)
+            rounded.extend({**r, 'polygon': polygon, 'ground': ground, 'height': top-ground}
+                           for polygon in parts(geometry))
+        if not rounded:
+            continue
         shortest = min(e.length for r in rounded for e in edges(r['polygon']))
         if len(rounded) > 1 and shortest < settings['short_wall_m']:
             eligible.extend(rounded)
@@ -377,9 +388,12 @@ def shading_relationships(records, walls, context, settings):
     for zone in context['target_zones']:
         local = [w for w in walls if w['zone'] == zone]
         local_footprints = [p for bid, p in footprints.items() if by_id[bid][0]['zone'] == zone]
+        local_boundary_tree = STRtree([p.boundary for p in local_footprints]) if local_footprints else None
         neighbor_zones = set(context['neighbors'][zone])
         neighbors = [w for w in walls if w['zone'] in neighbor_zones
-                     and any(w['line'].distance(p.boundary) <= settings['search_distance_m'] for p in local_footprints)]
+                     and local_boundary_tree is not None
+                     and len(local_boundary_tree.query(w['line'], predicate='dwithin',
+                                                       distance=settings['search_distance_m'])) > 0]
         # AttributeExposer exports local + matched surrounding wall lines.
         # Native candidate ports include local walls twice; keep their effect on caps.
         candidates = neighbors + local + local

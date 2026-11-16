@@ -9,3 +9,5 @@ examples/
 .env
 .env.*
 docker-config/
+output/
+source_audit/

@@ -7,12 +7,6 @@ __pycache__/
 .env
 docker-config/
 
-# Generated outputs in the project root, Geometry, and Features
+# Generated outputs
 /output/
 /examples/
-/Geometry/output/
-/Geometry/Outputs/
-/Geometry/examples/
-/Features/output/
-/Features/Outputs/
-/Features/examples/

@@ -12,11 +12,10 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
-COPY Geometry/requirements.txt Geometry/requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY Features/Scripts/ Scripts/
-COPY Features/Configs/ Configs/
-COPY Features/main_Data4ExternalStudy.py Features/main_Generate_CityModeller.py ./
+COPY code/ code/
+COPY inputs/ inputs/
+COPY main.py ./
 
-CMD ["python", "main_Data4ExternalStudy.py"]
+CMD ["python", "main.py"]

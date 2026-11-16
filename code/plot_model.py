@@ -8,9 +8,9 @@ from pathlib import Path
 from pyproj import Transformer
 
 if __package__:
-    from .model_common import ROOT
+    from .model_common import ROOT, read_config
 else:
-    from model_common import ROOT
+    from model_common import ROOT, read_config
 
 
 HTML = '''<!doctype html>
@@ -214,8 +214,9 @@ def run(input_path, output_path, open_browser=False, building_uuid=None):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--input', default=ROOT/'output/simplified.geojson')
-    parser.add_argument('--output', default=ROOT/'output/simplified_plot.html')
+    default_output = Path(read_config(ROOT/'inputs/config.yml')['paths']['output'])
+    parser.add_argument('--input', default=default_output/'CityModeller.geojson')
+    parser.add_argument('--output', default=default_output/'CityModeller_plot.html')
     parser.add_argument('--uuid', help='Show only this building UUID')
     parser.add_argument('--open', action='store_true', help='Open the finished map in a browser')
     args = parser.parse_args()

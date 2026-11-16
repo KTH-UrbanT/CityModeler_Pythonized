@@ -1,8 +1,9 @@
 """Generate baseline 3D sections and the complete contextual handoff for simplification.
 
-Run: ../venv/bin/python code/generate_baseline.py [--config inputs/config.yml] [--uuid UUID]
+Run: venv/bin/python code/generate_baseline.py [--config inputs/config.yml] [--uuid UUID]
 """
 import argparse
+import csv
 import json
 import math
 import sqlite3
@@ -14,9 +15,10 @@ import rasterio
 from rasterio.features import geometry_mask
 from rasterio.windows import from_bounds, transform as window_transform
 from scipy.spatial import ConvexHull, Delaunay, QhullError
+from pyproj import Transformer
 from shapely import STRtree, force_2d, from_wkb, intersects_xy, points as make_points
 from shapely.geometry import LineString, Point, Polygon, box, mapping, shape
-from shapely.ops import nearest_points, polygonize, unary_union
+from shapely.ops import nearest_points, polygonize, transform, unary_union
 
 if __package__:
     from .model_common import (ROOT, buffer, collection, edges, encode_records, groups, merge_lines,
@@ -31,6 +33,60 @@ else:
 
 class RejectedBuilding(ValueError):
     """A source feature follows a connected FME rejection/filter path."""
+
+
+def cityplanner_rows(path, key):
+    """Read one City Planner CSV with its native semicolon delimiter."""
+    rows = {}
+    with Path(path).open(encoding='utf-8-sig', newline='') as source:
+        for row in csv.DictReader(source, delimiter=';'):
+            identifier = str(row.get(key) or '').strip()
+            if identifier:
+                if identifier in rows:
+                    raise ValueError(f'Duplicate {key} {identifier} in {path}')
+                rows[identifier] = row
+    return rows
+
+
+def cityplanner_value(value):
+    if value is None or value == '':
+        return None
+    if not isinstance(value, str):
+        return value
+    if len(value) > 1 and value[0] == '0' and value[1].isdigit():
+        return value
+    try:
+        number = float(value)
+        if math.isfinite(number):
+            return int(number) if number.is_integer() else number
+    except ValueError:
+        pass
+    return value
+
+
+def cityplanner_attributes(config, features):
+    paths = config['paths']
+    template = json.loads(Path(paths['template']).read_text())['features'][0]['properties']
+    buildings = cityplanner_rows(paths['cityplanner_buildings'], '50A_UUID')
+    now = cityplanner_rows(paths['cityplanner_now'], 'FormularId')
+    properties = cityplanner_rows(paths['cityplanner_properties'], 'FNR')
+    result = {}
+    for feature in features:
+        footprint = feature.get('properties') or {}
+        identifier = footprint.get('50A_UUID')
+        if identifier not in config['building_uuids']:
+            continue
+        form_id = footprint.get('FormularId', footprint.get('FormularID'))
+        if form_id is None:
+            raise ValueError(f'City Planner footprint {identifier} has no FormularId for cpNow join')
+        sources = [footprint, now.get(str(form_id), {}), buildings.get(identifier, {}),
+                   properties.get(str(footprint.get('FNR') or ''), {})]
+        attrs = {}
+        for key in template:
+            attrs[key] = next((cityplanner_value(source[key]) for source in sources if key in source), None)
+        attrs['50A_UUID'] = identifier
+        result[identifier] = attrs
+    return result
 
 
 def load_context(config):
@@ -100,14 +156,18 @@ def template_footprint(geometry):
 
 def load_template_context(config):
     """Read building footprints and properties from a user-supplied GeoJSON."""
-    path = Path(config['paths']['template'])
+    path = Path(config['paths'].get('cityplanner_footprints') or config['paths']['template'])
     data = json.loads(path.read_text())
     features = data['features'] if data.get('type') == 'FeatureCollection' else [data]
+    cityplanner = bool(config['paths'].get('cityplanner_footprints'))
+    projector = Transformer.from_crs('EPSG:4326', config['crs'], always_xy=True) if cityplanner else None
     if data.get('type') == 'FeatureCollection':
         name = data.get('crs', {}).get('properties', {}).get('name')
-        if name and name != config['crs']:
-            raise ValueError(f'Template CRS is {name}; expected {config["crs"]}')
+        expected_crs = 'EPSG:4326' if cityplanner else config['crs']
+        if name and name != expected_crs:
+            raise ValueError(f'Template CRS is {name}; expected {expected_crs}')
     selected = set(config['building_uuids'])
+    enriched = cityplanner_attributes(config, features) if cityplanner else {}
     buildings = {}
     used_ids = set()
     for feature in features:
@@ -119,7 +179,11 @@ def load_template_context(config):
             continue
         if identifier in buildings:
             raise ValueError(f'Duplicate UUID in template: {identifier}')
+        if cityplanner:
+            attrs = enriched[identifier]
         footprint = template_footprint(feature['geometry'])
+        if projector:
+            footprint = valid_area(transform(projector.transform, footprint))
         attrs.pop('sections', None)
         attrs.pop('_geometry', None)
         attrs['50A_UUID'] = identifier
@@ -419,7 +483,7 @@ def process_zone(zone, identifiers, buildings, clouds, terrain, settings):
     records = []
     if unclipped:
         snapped = snap_areas([p for _, p in unclipped], settings['snap_m'])
-        faces = list(polygonize(unary_union([p.boundary for p in snapped])))
+        faces = list(polygonize(unary_union([p.boundary for p in snapped if p is not None])))
         by_owner = {}
         # FME CenterPointReplacer -> NeighborFinder (distance 0, area mode).
         for face in faces:

@@ -8,27 +8,38 @@ import uuid
 
 import numpy as np
 import yaml
-from shapely import make_valid, set_precision
+from shapely import STRtree, make_valid, set_precision
 from shapely.geometry import LineString, Polygon, mapping, shape
 from shapely.geometry.polygon import orient
-from shapely.ops import linemerge, nearest_points, polygonize, unary_union
+from shapely.ops import linemerge, polygonize, snap, unary_union
 
 ROOT = Path(__file__).resolve().parent.parent
 
 
 def read_config(path):
     path = Path(path).resolve()
-    config = yaml.safe_load(path.read_text())
+    raw = yaml.safe_load(path.read_text())
+    if '0_Data' in raw and '1_CASE' in raw:
+        data, case = raw['0_Data'], raw['1_CASE']
+        config = {**case, 'paths': data['0_paths'], 'crs': data['crs']}
+    else:
+        config = raw
+    config['paths'] = dict(config['paths'])
     config['building_uuids'] = list(dict.fromkeys(str(uuid.UUID(v)) for v in config['building_uuids']))
     if not config['building_uuids']:
         raise ValueError('Specify at least one building UUID')
     config['source'] = config.get('source', 'database')
     if config['source'] not in {'database', 'template'}:
         raise ValueError('source must be database or template')
-    if config['source'] == 'template' and not config['paths'].get('template'):
-        raise ValueError('paths.template is required when source is template')
+    if config['source'] == 'template' and not (config['paths'].get('cityplanner_footprints') or config['paths'].get('template')):
+        raise ValueError('paths.cityplanner_footprints or paths.template is required when source is template')
     for key, value in config['paths'].items():
-        config['paths'][key] = str((path.parent / value).resolve())
+        config['paths'][key] = str((path.parent / value).resolve()) if value else ''
+    case_name = str(config.get('CaseName') or '').strip()
+    if case_name:
+        if case_name in {'.', '..'} or '/' in case_name or '\\' in case_name:
+            raise ValueError('CaseName must be a folder name without path separators')
+        config['paths']['output'] = str(Path(config['paths']['output']) / case_name)
     if config['context'] != 'deso_and_neighbor_zones':
         raise ValueError('Use full DeSO and neighbour context for this workflow')
     if config['crs'] != 'EPSG:3006':
@@ -93,30 +104,24 @@ def merge_lines(lines):
 
 
 def snap_areas(polygons, tolerance):
-    """Vertex-to-segment snapping across the entire input batch.
+    """Batch polygon snapping; None represents FME's unconnected COLLAPSED port.
 
-    Freeze each preceding boundary, project later vertices to it, then node
-    common linework when the caller overlays areas. Deterministic input order
-    replaces FME's undocumented automatic cleaning/order choices.
+    FME's ALL mode snaps vertices and segments within the tolerance. GEOS snap
+    is the closest available operation, but its vertex choices may differ.
     """
+    if not polygons:
+        return []
+    tree = STRtree(polygons)
     output = []
-    reference = None
-    for polygon in polygons:
-        if reference is None:
-            adjusted = polygon
-        else:
-            rings = []
-            for ring in [polygon.exterior, *polygon.interiors]:
-                coordinates = []
-                from shapely.geometry import Point
-                for xy in list(ring.coords)[:-1]:
-                    point = Point(xy)
-                    nearest = nearest_points(point, reference)[1]
-                    coordinates.append(nearest.coords[0] if point.distance(nearest) <= tolerance else xy)
-                rings.append(coordinates)
-            adjusted = valid_area(Polygon(rings[0], rings[1:]))
-        output.append(adjusted)
-        reference = unary_union([p.boundary for p in output])
+    for index, polygon in enumerate(polygons):
+        nearby = [polygons[int(i)].boundary for i in tree.query(polygon.buffer(tolerance))
+                  if int(i) != index]
+        if not nearby:
+            output.append(polygon)
+            continue
+        adjusted = snap(polygon, unary_union(nearby), tolerance)
+        area = unary_union(parts(make_valid(adjusted)))
+        output.append(area if not area.is_empty and area.area > 0 else None)
     return output
 
 
@@ -131,7 +136,7 @@ def shared_generalization(polygons, tolerance):
         overlaps = [face.intersection(p).area for p in polygons]
         if max(overlaps, default=0) > 0:
             assigned[int(np.argmax(overlaps))].append(face)
-    return [valid_area(unary_union(items)) for items in assigned]
+    return [valid_area(unary_union(items)) if items else None for items in assigned]
 
 
 def extrude(polygon, ground, roof):
@@ -200,6 +205,10 @@ def sources_manifest(config):
         if path.name.lower() in {'citymodeller_footprints_worker.fmw', 'citymodeller_main.fmw', 'citymodeller_walls_worker.fmw'}:
             result[path.name] = hashlib.sha256(path.read_bytes()).hexdigest()
     if config['source'] == 'template':
-        template = Path(config['paths']['template'])
-        result['template.geojson'] = hashlib.sha256(template.read_bytes()).hexdigest()
+        input_keys = (('cityplanner_footprints', 'cityplanner_buildings', 'cityplanner_now',
+                       'cityplanner_properties', 'template') if config['paths'].get('cityplanner_footprints')
+                      else ('template',))
+        for key in input_keys:
+            source = Path(config['paths'][key])
+            result[source.name] = hashlib.sha256(source.read_bytes()).hexdigest()
     return result

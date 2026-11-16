@@ -1,5 +1,0 @@
-
-CaseName: ''
-# Select the buildings to generate.
-building_uuids: []
-Read_UUID_from_External_file: '/Users/alizad/Library/CloudStorage/OneDrive-KTH/id3s/writings/full papers/Archetype paper/Inputs/Stockholm_1000_buildings.xlsx'

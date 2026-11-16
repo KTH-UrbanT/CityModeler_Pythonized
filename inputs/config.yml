@@ -1,0 +1,80 @@
+#Author: Mohammadhossein Alizadeh
+#Email: alizad@kth.se
+
+0_Data:
+    0_paths:
+      database: /Users/alizad/Desktop/FME/DataProducts/Staging/Database/main.sqlite
+      template: building_template.geojson
+      cityplanner_footprints: /Users/alizad/OneDrive - KTH/id3s/data/KTH_CityPlanner_Stockholm/cpFootprints.geojson
+      cityplanner_buildings: /Users/alizad/OneDrive - KTH/id3s/data/KTH_CityPlanner_Stockholm/cpBuildings.csv
+      cityplanner_now: /Users/alizad/OneDrive - KTH/id3s/data/KTH_CityPlanner_Stockholm/cpNow.csv
+      cityplanner_properties: /Users/alizad/OneDrive - KTH/id3s/data/KTH_CityPlanner_Stockholm/cpProperties.csv
+      point_cloud: /Users/alizad/Desktop/FME/DataProducts/Input/Pointcloud/Ytmodell
+      terrain: /Users/alizad/Desktop/FME/DataProducts/Input/Groundmodel/Hojddata
+      fme_directory: /Users/alizad/Desktop/FME/DataProducts
+      output: ../output
+    crs: EPSG:3006
+1_CASE:
+    CaseName : 'Stockholm'
+  ## Choose database or template. Paths are relative to this file.
+    source: database
+    building_uuids: ['033f2409-535a-423b-888f-813548d48019', '994e5fcc-ef5a-4cab-a031-dc7014eb756d', 'f74c69e3-6a65-46ff-ab44-b3c235e0fcd4']
+    #['5e5a968b-327d-42e0-8322-8ba81fab7c14',
+    ##'c03a968d-a3a0-44aa-b13a-af98707483b8',
+    ##'c755646a-f8cb-4816-b523-da70d2f92ca7',
+    ##'46f73fbd-e546-4ebf-a4e4-85147ff0e74c',
+    ##'6bd47cc7-b13e-4e26-81c9-fb1e56753ff3',
+    ##'4df78586-c6a6-412c-be49-e332ac1d1d2d',
+    ##'7a8d6df8-ce09-4219-bac7-8887e3669e37',
+    ##'af522b92-e00b-46b3-a77d-a9411c4374ec',
+    ##'13bc64cc-17a7-4684-9598-116f09f64e72',
+    ##'8445c49c-582e-4017-a6b5-acfd432ce41f',
+    ##'fe1ca191-06bf-431a-9db6-3f8ea12de2d4']
+    # Full source DeSO batches plus their Zones-table neighbours are mandatory.
+    context: deso_and_neighbor_zones
+    baseline:
+      height_inset_m: 0.5
+      minimum_height_m: 3.0
+      cleaner_inset_m: 0.5
+      cleaner_offset_m: 2.0
+      # FME maps Groundheight into its internal Groundheight.mean parameter.
+      percentile_low: 5
+      percentile_high: 95
+      tin_tolerance_m: 0.01
+      triangle_inset_m: 1.0
+      normal_z_max: 0.25
+      edge_exclusion_m: 2.0
+      triangle_buffer_m: 0.1
+      region_min_area_m2: 0.75
+      region_buffer_m: 0.5
+      endpoint_distance_m: 20.0
+      extension_m: 0.5
+      line_simplification_m: 0.5
+      average_segment_m: 3.0
+      snap_m: 0.5
+      small_area_m2: 50.0
+      small_area_fraction: 0.1
+      cutter_vertex_snap_m: 0.1
+      part_join_m: 0.1
+    simplification:
+      minimum_height_m: 3.0
+      roof_range_m: 3.0
+      roof_merge_mode: neighboring  # neighboring or overall
+      coordinate_decimals: 3
+      shared_tolerance_m: 0.5
+      bump_cleanup:
+        enabled: true
+        tolerance_m: 1.2
+        max_area_change_fraction: 0.02
+      snap_m: 0.5
+      multipart_coordinate_decimals: 6
+      short_wall_m: 2.0
+      nearby_wall_m: 0.1
+      length_difference_m: 1.0
+      reconstruction_tolerance_m: 1.0
+    walls:
+      minimum_length_m: 0.0001
+      search_distance_m: 250.0
+      search_count: 999
+      touching_distance_m: 1.0
+      connection_shorten_m: 2.0

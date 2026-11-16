@@ -1,207 +1,114 @@
-# CityModeller
+# CMP building model workflow
 
-CityModeller prepares building GeoJSON data for MUBES simulations. It provides two workflows: defining a hypothetical building manually, or extracting existing buildings from City Planner datasets. These scripts generate the input data; the MUBES simulation is run separately.
+CMP turns 2D building footprints into flat-roof 3D sections using terrain elevations and LAS/LAZ point-cloud heights. The second script simplifies sections and creates wall outputs. It follows the connected FME workflow described in `WORKFLOW_MAPPING.md`, but Python geometry engines can give different coordinates, section splits, and heights from FME.
 
-## Installation
+## Files
 
-Run these commands from the project directory. If you do not already have a virtual environment, create one first:
-
-```bash
-python3 -m venv venv
-```
-
-Install the required libraries into the virtual environment:
-
-```bash
-venv/bin/python -m pip install -r requirements.txt
-```
-
-The commands below use macOS/Linux paths. On Windows, use `venv\Scripts\python.exe` instead of `venv/bin/python`.
-
-## 1. Hypothetical buildings: Data4ExternalStudy
-
-`Scripts/Data4ExternalStudy.py` is intended for external studies and hypothetical buildings. You can define the building's shape and assign relevant features, then generate a CityModeller GeoJSON file for use in MUBES.
-
-Before running, edit `Configs/UserManualInput.yml`. Building settings are stored under `0_Bld_Opt`:
-
-| Setting | Purpose |
+| File | Purpose |
 | --- | --- |
-| `Coordinates` | Footprint coordinates, nested by building, block, and coordinate pair. When provided, these take precedence over the synthetic shape settings. |
-| `CoordSys` | Coordinate reference system of the supplied coordinates, such as `EPSG:4326`. |
-| `ProjectedCoordSys` | Target projected EPSG code appropriate for the building's location. |
-| `height` | Block heights in metres; for explicit coordinates, provide one height per block. |
-| `BldShape` | Synthetic shape: `S` for square, `R` for rectangle, or `L` for an L-shaped building. |
-| `EgenAtemp` | Area used to construct a synthetic footprint when coordinates are absent. |
-| `EgenAntalPlan` | Number of above-ground floors. |
-| `EgenAntalKallarplan` | Number of basement floors. |
-| `EgenNybyggAr`, `43S_ARVARDE`, `43S_BYGGAR` | Year-related building properties to set for the study. |
+| `inputs/config.yml` | Source choice, UUIDs, paths, case name, and processing thresholds. Edit this first. |
+| `main.py` | Runs baseline generation, simplification, and plotting in sequence. |
+| `inputs/building_template.geojson` | One example input building with a 2D footprint and properties; used only in template mode. |
+| `code/generate_baseline.py` | Reads source data and creates baseline 3D geometry and diagnostic/handoff files. Run first. |
+| `code/simplify_model.py` | Reads the baseline handoff, simplifies geometry, cleans small walls, and exports final buildings and walls. Run second. |
+| `code/plot_model.py` | Reads an existing 3D GeoJSON and creates an interactive HTML plot. Optional. |
+| `code/model_common.py` | Shared config, geometry, extrusion, JSON, and validation functions; do not run directly. |
+| `requirements.txt` | Python packages needed to install and run CMP. |
+| `WORKFLOW_MAPPING.md` | Detailed FME transformer-to-Python map and known fidelity limits. Some historical diagnostic paths refer to archived files. |
+| `source_audit/` | Extracted FME workspace text and transformer inventory used for inspection; not runtime inputs. |
+| `venv/` | Python environment at the project root. |
+| `output/<CaseName>/` | Generated files; contents reflect the last run, which may use an older config. |
 
-The script uses `Configs/CM_Template.geojson` as its base. Configuration properties that match properties in the template replace the template values. Review the remaining template values to ensure they are suitable for your study. For explicit footprints, close each polygon by repeating its first coordinate at the end.
+## Inputs and configuration
 
-Run the root-level entry point:
+All paths under `0_Data.0_paths` in `inputs/config.yml` are relative to that file. `0_Data.crs` must be **EPSG:3006**. Set `1_CASE.source` to `database` or `template`, and set `1_CASE.building_uuids` to the selected UUIDs. `1_CASE.CaseName` adds a case subfolder to the configured output path (for example, `output/Stockholm/`).
 
-```bash
-venv/bin/python Features/main_Data4ExternalStudy.py
+- `source: database`: read 2D footprint WKB and attributes from the prepared SQLite `Buildings` table. The `Zones` table supplies the requested DeSO areas and their neighbouring areas. The database is read only.
+- `source: template`: when `paths.cityplanner_footprints` is set, read the City Planner footprint GeoJSON and project its EPSG:4326 coordinates to EPSG:3006. Join `cpBuildings` by `50A_UUID`, `cpNow` by the footprint's `FormularId`, and `cpProperties` by `FNR`. The field list comes from `paths.template` (`building_template.geojson`); unavailable values become null. Every selected UUID must appear in the footprints. Clear `paths.cityplanner_footprints` to use `paths.template` directly as the input instead. A 3D GeometryCollection input is also accepted: CMP projects its horizontal bottom faces to 2D and **recalculates** heights from the configured terrain and cloud. Only features in the chosen GeoJSON can provide nearby-building context.
+- `paths.point_cloud`: LAS/LAZ surface point tiles. CMP uses XYZ samples within each footprint. The LAS header or an adjacent JSON must identify EPSG:3006. The code does not filter by LAS classification or return number.
+- `paths.terrain`: ground-elevation GeoTIFF tiles. Valid raster cells whose centres lie within the sampling area provide ground samples. Metadata/density files are skipped; the last valid value wins where tiles overlap.
+- `paths.fme_directory`: location of the three FME workspaces whose hashes are recorded in the baseline handoff. Python does **not** execute FME.
+- `paths.output`: where results are written. `building_uuids` selects one or more final buildings; multiple UUIDs go into **one GeoJSON file per output stage**. Database mode also loads surrounding context buildings for spatial operations.
+
+The `baseline`, `simplification`, and `walls` sections of `inputs/config.yml` contain the numeric thresholds below. Change values there, not inside the scripts.
+
+## Run
+
+```sh
+venv/bin/python main.py
 ```
 
-Default output:
+The main file runs both geometry stages, copies the final model to `CityModeller.geojson`, and creates `CityModeller_plot.html` in the case output folder. To run stages separately, use `venv/bin/python code/generate_baseline.py` and then `venv/bin/python code/simplify_model.py` from the project root.
 
-```text
-examples/Data_for_ExternalStudy/CityModeler.geojson
+If needed, create the environment from the project root with `python3 -m venv venv` and install dependencies with `venv/bin/python -m pip install -r requirements.txt`. Both generators accept `--config /path/to/config.yml`. For **one** UUID override, pass `--uuid UUID` to **both** commands. For several, list them in `inputs/config.yml` and omit `--uuid`. Re-run baseline after changing the source, selected UUIDs, template, source paths, or baseline settings. Simplification checks this handoff and reads `output/<CaseName>/baseline_context.json`, **not** `baseline.geojson`.
+
+## Baseline: from data to 3D
+
+1. **Load footprints and attributes.** Database mode loads the requested buildings plus their DeSO and neighbour-area context. Template mode loads the requested GeoJSON features. Invalid polygon geometry is repaired where possible. Building properties are carried into the output.
+2. **Gather point and terrain samples.** Intersecting LAS/LAZ tiles are streamed in chunks and XYZ points are assigned to footprints. Terrain raster windows are sampled at valid cell centres. A building without both sources in its sampling area is rejected and recorded in `baseline_report.json`.
+3. **Find initial ground and roof elevations.** Inset the footprint by **0.5 m**. Ground is the **median terrain elevation**, rounded to 0.01 m. Roof is the **median raw cloud Z** inside that inset. Height is roof minus ground; buildings with height at or below **3 m** are rejected. These are flat section elevations: CMP does not preserve a sloping roof surface.
+4. **Find roof-height breaks.** Keep cloud points within a second **0.5 m** inset and more than **2 m** above ground. Retain the central **5–95%** Z range. Triangulate the points, select steep triangles by surface normal, exclude candidates near the footprint edge, buffer/dissolve them, and drop regions smaller than **0.75 m²**. CMP uses SciPy Delaunay and handles tied percentile points differently from FME.
+5. **Cut and regroup the footprint.** Make a centreline through each retained steep region using its minimum rotated rectangle; connect its ends to nearby footprint edges within **20 m**; simplify/filter the lines and cut the polygon. A **0.5 m** batch snap and area overlay help recover sections. Pieces **≤50 m²** or **<10%** of the original footprint are assigned to nearby retained pieces where possible. Courtyard holes are excluded.
+6. **Recalculate cut-section heights.** Sample each cut piece again with the **0.5 m** inset: median terrain for ground and median original cloud Z for roof. Untouched footprints retain their initial heights. Sections without coverage are omitted and reported.
+7. **Extrude sections.** For each valid polygon, create a bottom face at ground Z, a top face at ground + height, and vertical walls along every outer or hole edge. Validate that the shell is closed. One selected UUID becomes **one Feature**, with a `GeometryCollection` containing one `MultiPolygon` shell per block. `properties.sections` stores area, ground, roof, and height for each block. Each XYZ triple is formatted on one JSON row.
+
+`baseline_stages.geojson` is **diagnostic 2D geometry**, not the final model. Its `stage` values are `steep_region` (candidate height-break area), `cutting_line` (proposed division), and `cut_polygon` (pieces immediately after cutting). Later overlay, regrouping, height sampling, and extrusion may change or discard these pieces.
+
+## Simplification and wall steps
+
+1. **Filter and align elevations.** Drop sections with height **≤3 m**. If a building's roof-elevation range is **<3 m**, set its sections to the group's maximum roof, minimum ground, and maximum height. Those values are chosen independently, so the `Roofheight` property can differ from the actual extruded top, which is ground + height. Other buildings keep their per-section elevations.
+2. **Dissolve and simplify 2D footprints.** Merge connected sections with the same roof elevation, UUID, and building ID. Round coordinates to **0.001 m**, simplify shared boundary chains together with **0.5 m** tolerance, then snap neighbouring areas within **0.5 m**. Extrude the resulting valid polygons at their assigned elevations.
+3. **Clean selected short walls.** Multipart buildings whose shortest roof-boundary edge is **<2 m** enter this branch. Node their edges; find shared interior midlines and nearby short exterior edges; require the configured four-wall pairing, **0.1 m** proximity, and **<1 m** length difference. Where matched, remove selected old edges, add replacement centre lines, reconstruct polygon faces, simplify those faces at **1 m**, and recover each face's height from its original section. Others pass through. The report records eligible and modified buildings.
+4. **Create wall lines and relationships.** Chop final footprint boundaries into wall segments, with IDs `V{byggnadsid}-{count}` and `zmin`/`zmax`. For each target DeSO, compare local and neighbouring walls within **250 m**; a separate branch includes walls within **1 m**. Long-range links crossing intervening contextual footprints are excluded. Deduplicate relationships by building and wall ID.
+5. **Export buildings.** `simplified.geojson` contains all selected buildings that survive. `buildings_export.geojson` reflects FME's merged wall branch and can omit buildings with no wall match. Its `height` property is the separate estimate `EgenAntalPlan × 3`; actual modeled heights are in `properties.sections` and shell Z values.
+
+Simplification uses the saved baseline records and context; it does **not** re-read the point cloud or terrain.
+
+## Output files
+
+| File | Created by | What it contains |
+| --- | --- | --- |
+| `output/<CaseName>/baseline.geojson` | Baseline | Selected 3D buildings, one Feature per UUID. |
+| `output/<CaseName>/baseline_stages.geojson` | Baseline | Intermediate 2D steep regions, cutting lines, and cut polygons labeled by UUID and stage. |
+| `output/<CaseName>/baseline_context.json` | Baseline | Required simplification handoff: contextual footprints/properties, section records, config/source manifest, selected UUIDs. |
+| `output/<CaseName>/baseline_report.json` | Baseline | Point counts, TIN/cutting statistics, rejection reasons, missing UUIDs. |
+| `output/<CaseName>/simplified.geojson` | Simplification | Final selected 3D buildings, including ones without wall matches. |
+| `output/<CaseName>/buildings_export.geojson` | Simplification | FME-style merged building export subset with wall-related properties. |
+| `output/<CaseName>/walls.geojson` | Simplification | Wall lines with IDs, UUIDs, section IDs, and Z bounds. |
+| `output/<CaseName>/wall_relationships.json` | Simplification | Building-to-wall links and their match reason. |
+| `output/<CaseName>/simplified_context.json` | Simplification | Final section records and wall count for inspection. |
+| `output/<CaseName>/simplification_report.json` | Simplification | Per-zone counts and short-wall cleanup diagnostics. |
+
+Only the four baseline outputs are present until the simplifier runs. Each run overwrites its outputs. An old HTML plot does not update automatically.
+
+## Plot an existing model
+
+```sh
+venv/bin/python code/plot_model.py --input output/Stockholm/baseline.geojson --output output/Stockholm/baseline_plot.html --open
+venv/bin/python code/plot_model.py --input output/Stockholm/simplified.geojson --output output/Stockholm/simplified_plot.html --open
 ```
 
-**Current implementation limitations:** the synthetic shape branch needs correction before use: it returns a single object where the writer expects a list, and its height handling differs from the coordinate branch. Use explicit coordinates for now. The writer also retains only the last building when multiple buildings are supplied; use one building per run, with multiple blocks if needed.
+Add `--uuid 1c931069-d3d1-4559-8968-e7f0564579fb` to either command to show just that building. The plot places building blocks at their real locations on an interactive street map. Building colors follow construction year (`43S_BYGGAR`, with `EgenNybyggAr` or `43T_BYGGAR` as fallbacks); gray means no usable year. The map legend shows the year range. Drag to pan, right-drag or Ctrl-drag to rotate, and scroll to zoom. Search a UUID to focus on one building. Map tiles and the viewer libraries require an internet connection; the GeoJSON itself keeps EPSG:3006 coordinates.
 
-## 2. Existing buildings: Generate_CityModeller
+## FME fidelity
 
-`Scripts/Generate_CityModeller.py` reads City Planner datasets from the file paths specified in `Configs/CityModellerConfig.yml`. It selects buildings, links their records using building UUIDs, `FormularId`, and `FNR`, and extracts the geometry and building properties needed to populate the CityModeller template for MUBES.
+This implements the FME **workflow and techniques**, not FME's internal geometry kernels. Point ordering at percentile ties, TIN triangulation, polygon snapping, and boundary generalization can change splits or heights. For example, comparison against the Minneberg building GeoJSON found the same UUID set but different block divisions in some buildings. Use the stages and reports above to investigate a discrepancy; `WORKFLOW_MAPPING.md` identifies the matching FME transformers and remaining limitations.
 
-Before running, set the paths under `0_Setup`:
+## Optional footprint bump cleanup
 
-| Setting | Source |
-| --- | --- |
-| `cpBuildings` | Building CSV, including building UUIDs and heights. |
-| `cpFootprints` | Footprint GeoJSON, including identifiers used to link the datasets. |
-| `cpNow` | Energy performance certificate (EPC) CSV. |
-| `cpProperties` | Property CSV. |
-| `CityModeller_Tempalte` | GeoJSON template; defaults to `Configs/CM_Template.geojson`. Keep this configuration key's spelling as shown. |
+Set `simplification.bump_cleanup.enabled` in `inputs/config.yml` to `true` to
+remove repeated short steps from eligible building outlines, including buildings
+with multiple roof sections. For multi-section buildings, the cleanup adjusts
+the shared outer outline while keeping the internal section boundaries aligned.
+`tolerance_m` controls the simplification distance, and
+`max_area_change_fraction` limits the permitted footprint change. Set
+`enabled: false` to preserve the original outline. Changed UUIDs are listed
+in `simplification_report.json` under `bump_cleanup_uuids`.
 
-Use absolute file paths or paths relative to the project directory. The CSV files must use semicolons as delimiters. The source datasets are not included in this project, so replace the example paths with paths on your computer.
+## Roof merging
 
-Under `1_Sim`, choose the buildings to extract:
-
-- Set `InputType: 'UUID'` and provide a list in `UUID`. An empty list (`UUID: []`) selects all buildings in the footprint dataset.
-- Alternatively, set `InputType: 'Address'`, enter `Address`, and set `address2UUID_DataPath` to the Excel file mapping addresses to UUIDs. This file must contain the `Building` and `55A_UUIDREGBYG` columns.
-- Keep `ODEN_API: False` for the local dataset workflow. The optional API integration references an external module that is not included in this repository.
-
-The generator copies matching source properties into the template and builds floor and roof geometry. It assumes footprint coordinates are in `EPSG:4326` and transforms them to `EPSG:3006`. If a building height is missing, it uses the number of floors multiplied by 2.6 metres; buildings missing both values are skipped. Source records must contain matching identifiers and the fields expected by the script.
-
-Run the root-level entry point:
-
-```bash
-venv/bin/python Features/main_Generate_CityModeller.py
-```
-
-Default output:
-
-```text
-examples/Data_for_CityModeller/Generated_Buildings.geojson
-```
-
-## Case names and outputs
-
-Change `case_name` in the relevant root-level main script to name your study. Each workflow writes to `examples/Data_for_<case_name>/`.
-
-Running a workflow again deletes and recreates its case output folder. Save any results you want to keep elsewhere, or choose a new case name before rerunning.
-
-Review the generated geometry and properties before using the GeoJSON as building input in your MUBES setup.
-
-
-## Running with Docker
-
-Start Docker Desktop, then build the image from the project directory:
-
-```bash
-docker build -t citymodeller .
-```
-
-Create a separate configuration folder for Docker. This lets you use container
-paths without changing your local Python configuration:
-
-```bash
-mkdir -p docker-config examples
-cp Features/Configs/* docker-config/
-```
-
-Edit `docker-config/UserManualInput.yml` for the hypothetical-building workflow,
-then run:
-
-```bash
-docker run --rm \
-  -v "$(pwd)/docker-config:/app/Configs:ro" \
-  -v "$(pwd)/examples:/app/examples" \
-  citymodeller
-```
-
-For the City Planner workflow, edit `docker-config/CityModellerConfig.yml` so
-its `0_Setup` section uses the mounted dataset paths:
-
-```yaml
-0_Setup:
-  cpBuildings: '/data/cpBuildings.csv'
-  cpFootprints: '/data/cpFootprints.geojson'
-  cpNow: '/data/cpNow.csv'
-  cpProperties: '/data/cpProperties.csv'
-  CityModeller_Tempalte: 'Configs/CM_Template.geojson'
-```
-
-Keep the `1_Sim` section and set the desired UUIDs or address. Keep `ODEN_API`
-set to `False`. For address selection, also mount the mapping workbook and set
-`address2UUID_DataPath` to its path inside the container.
-
-Replace `/absolute/path/to/city-planner-data` below with the folder containing
-your source files:
-
-```bash
-docker run --rm \
-  -v "$(pwd)/docker-config:/app/Configs:ro" \
-  -v "$(pwd)/examples:/app/examples" \
-  -v "/absolute/path/to/city-planner-data:/data:ro" \
-  citymodeller python main_Generate_CityModeller.py
-```
-
-Outputs are saved in your local `examples/` folder using the same case names
-as the Python workflows. Rerunning still replaces the corresponding case
-output folder. Source datasets are supplied through mounts, not bundled in
-the image. Rebuild the image after changing the Python code or requirements.
-
-
-## Shared Python environment
-
-Both `Features/` and `Geometry/` use the single `venv/` at the repository root.
-Install all dependencies from that root with `venv/bin/python -m pip install -r requirements.txt`.
-In PyCharm, select the existing interpreter `venv/bin/python` for both workflows.
-Do not create another environment inside either folder. Feature workflow outputs
-are now under `Features/examples/` when run locally.
-
-```bash
-source venv/bin/activate
-python Features/main_Generate_CityModeller.py
-python Geometry/code/generate_baseline.py --help
-```
-
-## Full workflow: features and geometry
-
-Run from the repository root:
-
-```bash
-venv/bin/python Full_Workflow.py
-```
-
-Set `CaseName` and either `building_uuids` or `Read_UUID_from_External_file`
-in `GenConfig.yml`. An empty `CaseName` uses `output/full_workflow/`; a name such
-as `Archetype_1000` uses `output/Archetype_1000/`. When the external path is set,
-`building_uuids` takes precedence when it is nonempty. Otherwise, the external path is used. It may point to an `.xlsx` workbook
-or a folder containing exactly one `.xlsx`, `.csv`, or `.txt` UUID file. Excel
-and CSV files need a `UUID`, `50A_UUID`, or `building_uuid` column; text files
-need one UUID per line. Relative paths start at the project root. The feature
-data paths are in `Features/Configs/CityModellerConfig.yml`; point-cloud and
-terrain paths are in `Geometry/inputs/config.yml`. All selected UUIDs must
-exist in the configured City Planner footprints dataset.
-
-The workflow generates properties, projects the selected City Planner footprints
-into the geometry CRS, runs baseline generation followed by simplification, and
-replaces each feature's geometry by matching `50A_UUID`. Feature properties are
-preserved. Buildings rejected by geometry generation are skipped and listed with
-their UUID, stage, and reason in `output/<CaseName>/failed_buildings.log` (or
-`output/full_workflow/failed_buildings.log` when `CaseName` is empty). The geometry stages run in separate processes using the same virtual
-environment to avoid native GDAL conflicts between Fiona and Rasterio.
-
-The default result is `output/full_workflow/Stockholm_Buildings.geojson`. Intermediate
-features, footprint input, a resolved geometry configuration, and geometry-stage
-outputs are retained alongside it for inspection. Rerunning overwrites these
-workflow files. The workflow uses template geometry mode for the selected
-buildings; it does not load the database's full surrounding-building context.
-The same run also creates `output/full_workflow/CityModeller_plot.html`, an
-interactive 3D building map. Open that HTML file in a browser with an internet connection.
-Building colors represent construction year, with the range shown in the map legend.
+Set `simplification.roof_merge_mode` in `inputs/config.yml` to `overall` or
+`neighboring`. Both use `roof_range_m`. `overall` merges only when the full
+building's roof-height range is below the threshold. `neighboring` merges
+adjacent sections with a combined roof-height range below the threshold, so
+nearby high roofs can merge while lower sections remain separate.
