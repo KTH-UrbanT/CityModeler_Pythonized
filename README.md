@@ -57,6 +57,45 @@ venv/bin/python main.py
 venv/bin/python main.py --uuid 1c931069-d3d1-4559-8968-e7f0564579fb
 ```
 
+To select buildings from a file, set `uuid_file` in `inputs/config.yml` under
+`1_CASE` and run `venv/bin/python main.py`:
+
+```yaml
+uuid_file: /path/to/building_uuids.xlsx
+```
+
+When `uuid_file` is set, it overrides `building_uuids`. Leave it empty to use
+the inline list. Relative paths are resolved from the config file's folder.
+In database mode, UUIDs absent from the prepared database use their City Planner
+footprint when available. Missing `FormularId` leaves fields from its `cpNow`
+join as `null`; the footprint can still produce geometry. The fallback UUIDs
+are listed in `baseline_report.json`. UUIDs absent from both sources still raise
+an error.
+
+Set `skip_geometry_errors: true` under `1_CASE` to omit an entire building if
+its 3D section fails shell validation. The stage report lists each skipped UUID,
+section ID, and reason in `geometry_errors_skipped`. With `false` (the default),
+geometry errors stop the workflow as before.
+You can also override the config selection for one run:
+
+```sh
+venv/bin/python main.py --uuid-file /path/to/building_uuids.xlsx
+```
+
+The file may be `.xlsx` or `.csv` with a `UUID`, `50A_UUID`, or
+`building_uuid` column, or `.txt` with one UUID per line. `--uuid-file`
+overrides the config list for that run and cannot be combined with `--uuid`.
+Use the same `--uuid-file` option on both scripts if running the stages separately.
+
+Small roof-division bends are controlled by `cut_line_straightening_m`,
+`cut_line_straightening_min_length_m`, and `cut_line_straightening_max_fraction`
+under `baseline`. The corresponding `shared_wall_*` settings under
+`simplification` straighten eligible internal section walls after snapping.
+Both stages retain wall endpoints; final shared-wall edits rebuild adjoining
+sections from one line network and are accepted only when the building outline
+and all section faces are retained. Set either distance limit to `0` to disable
+that stage's straightening.
+
 You can also use another config file with `--config /path/to/config.yml`. A run overwrites files in its case output folder. To preserve a result, give the next run a different `CaseName` or copy the output elsewhere.
 
 ### Run stages separately

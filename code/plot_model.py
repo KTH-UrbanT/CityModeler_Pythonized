@@ -51,7 +51,7 @@ HTML = '''<!doctype html>
   <div class="row"><input id="search" type="search" placeholder="Search building UUID" aria-label="Search building UUID">
   <button id="find">Find</button><button id="all">All</button></div>
   <div id="status">Click a building for details. Drag to pan; right-drag or Ctrl-drag to rotate; scroll to zoom.</div>
-  <div class="legend"><b>Construction year</b><div class="scale"></div>
+  <div class="legend"><b>Construction year</b> · colors clipped to 5th–95th percentiles<div class="scale"></div>
     <div class="ticks"><span>__YEAR_MIN__</span><span>__YEAR_MID__</span><span>__YEAR_MAX__</span></div>
     <div class="missing"><span class="swatch"></span> Year unavailable</div>
   </div>
@@ -192,9 +192,9 @@ def initial_view(blocks):
 def run(input_path, output_path, open_browser=False, building_uuid=None):
     data = json.loads(Path(input_path).read_text())
     blocks = model_blocks(data, building_uuid)
-    years = [block['year'] for block in blocks if block['year'] is not None]
-    year_min = min(years) if years else 0
-    year_max = max(years) if years else 0
+    years = sorted(block['year'] for block in blocks if block['year'] is not None)
+    year_min = years[round((len(years)-1)*0.05)] if years else 0
+    year_max = years[round((len(years)-1)*0.95)] if years else 0
     html = (HTML.replace('__BLOCKS__', json.dumps(blocks, separators=(',', ':')).replace('</', '<\\/'))
                 .replace('__VIEW__', json.dumps(initial_view(blocks)))
                 .replace('__BUILDING_COUNT__', str(len({block['uuid'] for block in blocks})))

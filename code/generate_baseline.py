@@ -77,9 +77,7 @@ def cityplanner_attributes(config, features):
         if identifier not in config['building_uuids']:
             continue
         form_id = footprint.get('FormularId', footprint.get('FormularID'))
-        if form_id is None:
-            raise ValueError(f'City Planner footprint {identifier} has no FormularId for cpNow join')
-        sources = [footprint, now.get(str(form_id), {}), buildings.get(identifier, {}),
+        sources = [footprint, now.get(str(form_id), {}) if form_id not in (None, '') else {}, buildings.get(identifier, {}),
                    properties.get(str(footprint.get('FNR') or ''), {})]
         attrs = {}
         for key in template:
@@ -97,12 +95,39 @@ def load_context(config):
     with sqlite3.connect(database.as_uri() + '?mode=ro', uri=True) as conn:
         conn.row_factory = sqlite3.Row
         selected = config['building_uuids']
-        placeholders = ','.join('?' for _ in selected)
-        rows = conn.execute(f'SELECT "50A_UUID", Deso_id FROM Buildings WHERE "50A_UUID" IN ({placeholders})', selected).fetchall()
+        rows = []
+        for start in range(0, len(selected), 500):
+            batch = selected[start:start + 500]
+            placeholders = ','.join('?' for _ in batch)
+            rows.extend(conn.execute(f'SELECT "50A_UUID", Deso_id FROM Buildings WHERE "50A_UUID" IN ({placeholders})', batch))
         missing = set(selected) - {r['50A_UUID'] for r in rows}
+        fallback = {}
         if missing:
-            raise ValueError(f'UUIDs missing from prepared database: {sorted(missing)}')
-        target_zones = sorted({r['Deso_id'] for r in rows})
+            footprint_path = Path(config['paths']['cityplanner_footprints'])
+            data = json.loads(footprint_path.read_text())
+            features = [feature for feature in data['features']
+                        if (feature.get('properties') or {}).get('50A_UUID') in missing]
+            available = {(feature.get('properties') or {}).get('50A_UUID') for feature in features}
+            if missing - available:
+                raise ValueError(f'UUIDs missing from both prepared database and City Planner footprints: {sorted(missing - available)}')
+            enriched = cityplanner_attributes(config, features)
+            projector = Transformer.from_crs('EPSG:4326', config['crs'], always_xy=True)
+            columns = [column[1] for column in conn.execute('PRAGMA table_info(Buildings)')]
+            next_id = conn.execute('SELECT COALESCE(MAX(byggnadsid), 0) FROM Buildings').fetchone()[0] + 1
+            for feature in features:
+                identifier = feature['properties']['50A_UUID']
+                if identifier in fallback:
+                    raise ValueError(f'Duplicate City Planner footprint UUID {identifier}')
+                polygon = valid_area(transform(projector.transform, template_footprint(feature['geometry'])))
+                attrs = {column: None for column in columns if column != '_geometry'}
+                attrs.update(enriched[identifier])
+                attrs.update({'50A_UUID': identifier, 'byggnadsid': next_id,
+                              'Deso_id': feature['properties'].get('Deso') or 'TEMPLATE',
+                              '_orginalarea': polygon.area})
+                fallback[identifier] = {'polygon': polygon, 'attributes': attrs}
+                next_id += 1
+        target_zones = sorted({r['Deso_id'] for r in rows} |
+                              {b['attributes']['Deso_id'] for b in fallback.values()})
         neighbors = {}
         for zone in target_zones:
             row = conn.execute('SELECT zones FROM Zones WHERE Deso_id=?', (zone,)).fetchone()
@@ -110,8 +135,11 @@ def load_context(config):
                 raise ValueError(f'Missing Zones context for {zone}')
             neighbors[zone] = [z.strip() for z in (row['zones'] or '').split(',') if z.strip()]
         all_zones = sorted(set(target_zones).union(*map(set, neighbors.values())))
-        placeholders = ','.join('?' for _ in all_zones)
-        rows = conn.execute(f'SELECT * FROM Buildings WHERE Deso_id IN ({placeholders}) ORDER BY Deso_id, byggnadsid', all_zones).fetchall()
+        rows = []
+        for start in range(0, len(all_zones), 500):
+            batch = all_zones[start:start + 500]
+            placeholders = ','.join('?' for _ in batch)
+            rows.extend(conn.execute(f'SELECT * FROM Buildings WHERE Deso_id IN ({placeholders}) ORDER BY Deso_id, byggnadsid', batch))
     buildings = {}
     for row in rows:
         attrs = dict(row)
@@ -120,7 +148,9 @@ def load_context(config):
             raise ValueError(f'Duplicate prepared UUID {identifier}')
         geometry = valid_area(from_wkb(attrs.pop('_geometry')))
         buildings[identifier] = {'polygon': geometry, 'attributes': attrs}
-    return buildings, {'target_zones': target_zones, 'neighbors': neighbors, 'all_zones': all_zones}
+    buildings.update(fallback)
+    return buildings, {'target_zones': target_zones, 'neighbors': neighbors, 'all_zones': all_zones,
+                       'cityplanner_fallback_uuids': sorted(fallback)}
 
 
 def template_footprint(geometry):
@@ -366,6 +396,20 @@ def centerline(region):
     return LineString([a, (a+b)/2, b])
 
 
+def straighten_cut_line(line, settings):
+    """Replace a small lateral wobble while retaining both cutter endpoints."""
+    limit = settings.get('cut_line_straightening_m', 0)
+    minimum = settings.get('cut_line_straightening_min_length_m', 10)
+    fraction = settings.get('cut_line_straightening_max_fraction', 0.06)
+    if limit <= 0 or len(line.coords) < 3 or line.length < minimum:
+        return line
+    chord = LineString([line.coords[0], line.coords[-1]])
+    if chord.length < minimum:
+        return line
+    deviation = max(Point(xy).distance(chord) for xy in list(line.coords)[1:-1])
+    return chord if deviation <= limit and deviation / chord.length <= fraction else line
+
+
 def cutting_lines(regions, footprint, settings):
     boundary = [edge for p in parts(footprint) for edge in edges(p)]
     output = []
@@ -401,7 +445,7 @@ def cutting_lines(regions, footprint, settings):
             c = np.asarray(p.coords)
             # Only the SpikeRemover UNCHANGED port is connected.
             if not any(np.dot(x-y, z-y) > 0 for x, y, z in zip(c, c[1:], c[2:])):
-                output.append(p)
+                output.append(straighten_cut_line(p, settings))
     return output
 
 
@@ -525,15 +569,21 @@ def run(config):
         print(f'{zone}: {len(identifiers)} buildings -> {len(result)} baseline sections', flush=True)
     # Nonpositive sections cannot be extruded; preserve them in handoff for script 2's height filter.
     drawable = [r for r in records if r['height'] > 0]
-    write_json(output/'baseline.geojson', collection(model_features(drawable, buildings, config['building_uuids'])))
+    geometry_issues = []
+    baseline_features = model_features(drawable, buildings, config['building_uuids'],
+                                       config['skip_geometry_errors'], geometry_issues)
+    write_json(output/'baseline.geojson', collection(baseline_features))
     serial_buildings = {u: {'polygon': mapping(b['polygon']), 'attributes': b['attributes']} for u, b in buildings.items()}
     handoff = {'schema_version': 1, 'crs': config['crs'], 'selected_uuids': config['building_uuids'],
                'context': context, 'buildings': serial_buildings, 'records': encode_records(records),
                'source_workspaces': sources_manifest(config), 'config': config, 'cloud_sources': sources}
     write_json(output/'baseline_context.json', handoff)
     write_json(output/'baseline_stages.geojson', collection(stages))
-    missing = sorted(set(config['building_uuids']) - {r['uuid'] for r in drawable})
-    write_json(output/'baseline_report.json', {'buildings_in_context': len(buildings), 'sections': len(records), 'missing_requested_uuids': missing, 'features': reports})
+    missing = sorted(set(config['building_uuids']) - {f['properties']['50A_UUID'] for f in baseline_features})
+    write_json(output/'baseline_report.json', {'buildings_in_context': len(buildings), 'sections': len(records),
+               'cityplanner_fallback_uuids': context.get('cityplanner_fallback_uuids', []),
+               'missing_requested_uuids': missing, 'geometry_errors_skipped': geometry_issues,
+               'features': reports})
     if missing:
         print(f'Skipped {len(missing)} buildings without baseline geometry; see baseline_report.json', flush=True)
     print(f'Baseline and contextual handoff written to {output}', flush=True)
@@ -543,8 +593,11 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--config', default=ROOT/'inputs/config.yml')
     parser.add_argument('--uuid')
+    parser.add_argument('--uuid-file', type=Path, help='Read selected UUIDs from .txt, .csv, or .xlsx')
     args = parser.parse_args()
-    config = read_config(args.config)
+    if args.uuid and args.uuid_file:
+        parser.error('--uuid and --uuid-file cannot be combined')
+    config = read_config(args.config, uuid_file=args.uuid_file)
     if args.uuid:
         import uuid
         config['building_uuids'] = [str(uuid.UUID(args.uuid))]

@@ -1,10 +1,12 @@
 """Shared configuration, geometry, serialization and validation utilities."""
 from collections import Counter, defaultdict
+import csv
 from pathlib import Path
 import hashlib
 import json
 import re
 import uuid
+from openpyxl import load_workbook
 
 import numpy as np
 import yaml
@@ -16,7 +18,52 @@ from shapely.ops import linemerge, polygonize, snap, unary_union
 ROOT = Path(__file__).resolve().parent.parent
 
 
-def read_config(path):
+def read_uuid_file(path):
+    """Read ordered UUIDs from a text list or a named CSV/Excel column."""
+    path = Path(path).expanduser().resolve()
+    if not path.is_file():
+        raise FileNotFoundError(f'UUID file not found: {path}')
+    columns = {'uuid', '50a_uuid', 'building_uuid'}
+    if path.suffix.lower() == '.txt':
+        values = [line.strip() for line in path.read_text(encoding='utf-8-sig').splitlines()
+                  if line.strip() and not line.lstrip().startswith('#')]
+    elif path.suffix.lower() == '.csv':
+        with path.open(newline='', encoding='utf-8-sig') as source:
+            reader = csv.DictReader(source)
+            column = next((name for name in reader.fieldnames or []
+                           if name.strip().casefold() in columns), None)
+            if column is None:
+                raise ValueError(f'UUID column missing from {path}')
+            values = [row[column] for row in reader if row[column] and row[column].strip()]
+    elif path.suffix.lower() == '.xlsx':
+        workbook = load_workbook(path, read_only=True, data_only=True)
+        try:
+            values = None
+            for sheet in workbook:
+                rows = sheet.iter_rows(values_only=True)
+                header = next(rows, ())
+                column = next((i for i, name in enumerate(header)
+                               if str(name).strip().casefold() in columns), None)
+                if column is not None:
+                    values = [row[column] for row in rows
+                              if len(row) > column and row[column] not in (None, '')]
+                    break
+            if values is None:
+                raise ValueError(f'UUID column missing from {path}')
+        finally:
+            workbook.close()
+    else:
+        raise ValueError(f'Unsupported UUID file type: {path.suffix}')
+    try:
+        identifiers = list(dict.fromkeys(str(uuid.UUID(str(value).strip())) for value in values))
+    except (ValueError, AttributeError) as error:
+        raise ValueError(f'Invalid UUID in {path}: {error}') from error
+    if not identifiers:
+        raise ValueError(f'No UUIDs found in {path}')
+    return identifiers
+
+
+def read_config(path, uuid_file=None):
     path = Path(path).resolve()
     raw = yaml.safe_load(path.read_text())
     if '0_Data' in raw and '1_CASE' in raw:
@@ -25,9 +72,22 @@ def read_config(path):
     else:
         config = raw
     config['paths'] = dict(config['paths'])
-    config['building_uuids'] = list(dict.fromkeys(str(uuid.UUID(v)) for v in config['building_uuids']))
+    configured_file = config.get('uuid_file')
+    chosen_file = uuid_file if uuid_file is not None else configured_file
+    if chosen_file:
+        chosen_file = Path(chosen_file).expanduser()
+        if not chosen_file.is_absolute():
+            chosen_file = path.parent / chosen_file
+        config['uuid_file'] = str(chosen_file.resolve())
+        config['building_uuids'] = read_uuid_file(chosen_file)
+    else:
+        config['uuid_file'] = ''
+        config['building_uuids'] = list(dict.fromkeys(str(uuid.UUID(v)) for v in config['building_uuids']))
     if not config['building_uuids']:
         raise ValueError('Specify at least one building UUID')
+    config['skip_geometry_errors'] = config.get('skip_geometry_errors', False)
+    if not isinstance(config['skip_geometry_errors'], bool):
+        raise ValueError('skip_geometry_errors must be true or false')
     config['source'] = config.get('source', 'database')
     if config['source'] not in {'database', 'template'}:
         raise ValueError('source must be database or template')
@@ -167,22 +227,30 @@ def audit_shell(shell):
         raise ValueError('Shell is not closed and consistently oriented')
 
 
-def model_features(records, buildings, selected):
+def model_features(records, buildings, selected, skip_geometry_errors=False, issues=None):
+    if skip_geometry_errors and issues is None:
+        raise ValueError('issues list is required when skip_geometry_errors is true')
     result = []
     for identifier, group in groups(records, lambda r: r['uuid']).items():
         if identifier not in selected:
             continue
         shells, summaries = [], []
-        for i, r in enumerate(group, 1):
-            p = r['polygon']
-            if p.geom_type != 'Polygon' or not p.is_valid or r['height'] <= 0:
-                raise ValueError('Invalid model section')
-            shell = extrude(p, r['ground'], r['ground'] + r['height'])
-            audit_shell(shell)
-            shells.append(shell)
-            summaries.append({'section': i, 'section_id': r['section_id'], 'area_m2': p.area,
-                              'ground_z_m': r['ground'], 'roof_z_m': r['ground'] + r['height'],
-                              'height_m': r['height'], 'Roofheight': r['roof']})
+        try:
+            for i, r in enumerate(group, 1):
+                p = r['polygon']
+                if p.geom_type != 'Polygon' or not p.is_valid or r['height'] <= 0:
+                    raise ValueError('Invalid model section')
+                shell = extrude(p, r['ground'], r['ground'] + r['height'])
+                audit_shell(shell)
+                shells.append(shell)
+                summaries.append({'section': i, 'section_id': r['section_id'], 'area_m2': p.area,
+                                  'ground_z_m': r['ground'], 'roof_z_m': r['ground'] + r['height'],
+                                  'height_m': r['height'], 'Roofheight': r['roof']})
+        except ValueError as error:
+            if not skip_geometry_errors:
+                raise
+            issues.append({'uuid': identifier, 'section_id': r['section_id'], 'reason': str(error)})
+            continue
         props = {k: v for k, v in buildings[identifier]['attributes'].items() if k != '_geometry'}
         props['50A_UUID'] = identifier
         props['sections'] = summaries

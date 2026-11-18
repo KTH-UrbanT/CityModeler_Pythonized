@@ -106,6 +106,61 @@ def clean_multi_section_bumps(polygons, settings):
     return revised, True
 
 
+def straighten_shared_walls(polygons, settings):
+    """Rebuild all section faces from one boundary network after each small bend.
+
+    Polygonizing the common network gives adjacent sections identical XY edges.
+    A candidate is accepted only when every original section retains a face and
+    the building union is unchanged; roof heights are kept on their donors.
+    """
+    limit = settings.get('shared_wall_straightening_m', 0)
+    minimum = settings.get('shared_wall_min_length_m', 10)
+    fraction = settings.get('shared_wall_max_fraction', 0.06)
+    if limit <= 0 or len(polygons) < 2:
+        return polygons, False
+    original_union = unary_union(polygons)
+    result = list(polygons)
+    changed = False
+    # Recompute shared chains after each accepted edit, including T junctions.
+    for _ in range(sum(len(part.exterior.coords) for polygon in polygons for part in parts(polygon))):
+        candidates = []
+        for i, first in enumerate(result):
+            for second in result[i + 1:]:
+                shared = first.boundary.intersection(second.boundary)
+                for line in merge_lines(parts(shared, 'LineString')):
+                    if len(line.coords) < 3 or line.length < minimum:
+                        continue
+                    chord = LineString([line.coords[0], line.coords[-1]])
+                    if chord.length < minimum:
+                        continue
+                    deviation = max(Point(xy).distance(chord) for xy in list(line.coords)[1:-1])
+                    if 1e-7 < deviation <= limit and deviation / chord.length <= fraction:
+                        candidates.append((line, chord))
+        if not candidates:
+            break
+        accepted = False
+        for line, chord in candidates:
+            network = unary_union([p.boundary for p in result])
+            faces = list(polygonize(unary_union([network.difference(line), chord])))
+            assigned = [[] for _ in result]
+            for face in faces:
+                overlaps = [face.intersection(p).area for p in result]
+                if max(overlaps, default=0) > 1e-8:
+                    assigned[int(np.argmax(overlaps))].append(face)
+            if any(not group for group in assigned):
+                continue
+            revised = [valid_area(unary_union(group)) for group in assigned]
+            if (unary_union(revised).symmetric_difference(original_union).area > 1e-6 or
+                    any(a.intersection(b).area > 1e-6 for i, a in enumerate(revised) for b in revised[i + 1:])):
+                continue
+            result = revised
+            changed = accepted = True
+            break
+        if not accepted:
+            break
+    return result, changed
+
+
 def roof_merge_groups(records, mode, threshold):
     """Group adjacent sections without chaining across the roof-height limit."""
     if mode == 'overall':
@@ -164,6 +219,7 @@ def final_footprints(records, settings):
     section_counts = Counter(r['uuid'] for r in records)
     multi_sections = groups(list(enumerate(records)), lambda item: item[1]['uuid'])
     cleaned_multi = set()
+    straightened_shared = set()
     for identifier in multi_bump_ids:
         sections = multi_sections.get(identifier, [])
         if len(sections) < 2:
@@ -174,6 +230,15 @@ def final_footprints(records, settings):
             for index, polygon in zip(indices, revised):
                 snapped[index] = polygon
             cleaned_multi.add(identifier)
+    for sections in multi_sections.values():
+        if len(sections) < 2:
+            continue
+        indices = [index for index, _ in sections]
+        revised, changed = straighten_shared_walls([snapped[index] for index in indices], settings)
+        if changed:
+            for index, polygon in zip(indices, revised):
+                snapped[index] = polygon
+            straightened_shared.add(sections[0][1]['uuid'])
     for r, geometry in zip(records, snapped):
         cleaned = r['uuid'] in cleaned_multi
         if section_counts[r['uuid']] == 1:
@@ -181,6 +246,7 @@ def final_footprints(records, settings):
         for p in parts(geometry):
             # 3DForcer+Extruder: top is Groundheight+Buildingheight, not Roofheight.
             output.append({**r, 'polygon': p, 'bump_cleanup_applied': cleaned,
+                           'shared_wall_straightening_applied': r['uuid'] in straightened_shared,
                            'section_id': f'{r["building_id"]}:final:{len(output)}'})
     return output
 
@@ -465,9 +531,15 @@ def run(config):
         reports.append({'zone': zone, 'baseline_sections': len(batch), 'simplified_sections': len(rebuilt), **report})
         trace.extend(events)
         print(f'{zone}: {len(batch)} -> {len(rebuilt)} sections; {report["modified_buildings"]} buildings rebuilt', flush=True)
+    geometry_issues = []
+    features = model_features(final, buildings, config['building_uuids'],
+                              config['skip_geometry_errors'], geometry_issues)
+    if geometry_issues:
+        skipped = {item['uuid'] for item in geometry_issues}
+        final = [record for record in final if record['uuid'] not in skipped]
+        print(f'Skipped {len(skipped)} buildings with invalid 3D geometry; see simplification_report.json', flush=True)
     walls = create_walls(final, config['walls'])
     exported_walls, relations = shading_relationships(final, walls, handoff['context'], config['walls'])
-    features = model_features(final, buildings, config['building_uuids'])
     relation_groups = groups(relations, lambda r: r['building_id'])
     fme_exports = []
     for feature in features:
@@ -483,7 +555,7 @@ def run(config):
         props['fme_export_branch'] = 'MERGED' if neighbors else 'UNMERGED_REQUESTOR'
         if neighbors:
             fme_exports.append(feature)
-    selected_ids = {buildings[u]['attributes']['byggnadsid'] for u in config['building_uuids']}
+    selected_ids = {feature['properties']['byggnadsid'] for feature in features}
     selected_relations = [r for r in relations if r['building_id'] in selected_ids]
     relevant_ids = {r['wall_id'] for r in selected_relations}
     wall_export = [w for w in exported_walls if w['building_id'] in selected_ids or w['vaggid'] in relevant_ids]
@@ -497,6 +569,8 @@ def run(config):
                'context_wall_count': len(walls), 'exported_wall_count': len(wall_export),
                'selected_buildings': len(features), 'native_merged_export_buildings': len(fme_exports),
                'bump_cleanup_uuids': sorted({r['uuid'] for r in final if r.get('bump_cleanup_applied')}),
+               'shared_wall_straightening_uuids': sorted({r['uuid'] for r in final if r.get('shared_wall_straightening_applied')}),
+               'geometry_errors_skipped': geometry_issues,
                'missing_requested_uuids': missing})
     if missing:
         print(f'Skipped {len(missing)} buildings during simplification; see simplification_report.json', flush=True)
@@ -507,8 +581,11 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--config', default=ROOT/'inputs/config.yml')
     parser.add_argument('--uuid', help='Match a baseline --uuid selection')
+    parser.add_argument('--uuid-file', type=Path, help='Match a baseline --uuid-file selection')
     args = parser.parse_args()
-    config = read_config(args.config)
+    if args.uuid and args.uuid_file:
+        parser.error('--uuid and --uuid-file cannot be combined')
+    config = read_config(args.config, uuid_file=args.uuid_file)
     if args.uuid:
         import uuid
         config['building_uuids'] = [str(uuid.UUID(args.uuid))]
