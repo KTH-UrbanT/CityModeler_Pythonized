@@ -118,6 +118,7 @@
         "EgiEnergiPrestanda": 72,
         "EgiVersion": 2019,
         "EgiEnergiklass": "E",
+        "EgiUppvarmning_calc": null,
         "VentGruppKrav": "Ja",
         "VentTypFTX": "Nej",
         "VentTypF": "Nej",

@@ -17,7 +17,7 @@
 1_CASE:
     CaseName : 'Stockholm'
   ## Choose database or template. Paths are relative to this file.
-    source: database
+    source: template
     building_uuids: ['033f2409-535a-423b-888f-813548d48019', '994e5fcc-ef5a-4cab-a031-dc7014eb756d', 'f74c69e3-6a65-46ff-ab44-b3c235e0fcd4']
     uuid_file: '/Users/alizad/Library/CloudStorage/OneDrive-KTH/id3s/writings/full papers/Archetype paper/Inputs/Kungsholmen_city_district_all_2185_UUIDs.xlsx'   # Set a .txt, .csv, or .xlsx path to override building_uuids
     skip_geometry_errors: true  # true: omit an entire building whose 3D shell validation fails
